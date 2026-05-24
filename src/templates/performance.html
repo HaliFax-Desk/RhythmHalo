@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RhythmHalo · Performance</title>
+<!-- ElementPlus UI 组件库 (CDN) -->
+<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<!-- 项目样式：严格对应 UIdesign/mainpage.svg 的坐标布局 -->
+<link rel="stylesheet" href="/static/css/performance.css">
+</head>
+<body>
+
+<!--
+  布局对应 SVG (2048x1152):
+    顶栏 4列 h=186, w=503, 1px #636363 分隔线
+    主区 flex:1, 中央乐谱 MusicSheet.png
+    底栏 h=24, #000000
+  Vue 定界符 [[ ]] 避免与 Jinja2 markup 冲突
+-->
+<div id="app">
+
+  <!-- ====== 顶栏 ====== -->
+  <header class="perf-header">
+
+    <!-- 列1: bpm / 86 -->
+    <div class="header-cell col-number">
+      <span class="big-number">86</span>
+      <span class="label-bpm">bpm</span>
+    </div>
+
+    <!-- 列2: loop / 1 -->
+    <div class="header-cell col-number">
+      <span class="big-number">1</span>
+      <span class="label-bpm">loop</span>
+    </div>
+
+    <!-- 列3: Para / 3 -->
+    <div class="header-cell col-number">
+      <span class="big-number">3</span>
+      <span class="label-bpm">Para</span>
+    </div>
+
+    <!-- 列4: cresc -->
+    <div class="header-cell col-number">
+      <span class="big-number" style="font-family:'PinyonScript',serif;">cresc</span>
+    </div>
+  </header>
+
+  <!-- ====== 主区 (y=186..1128): 乐谱占位 ====== -->
+  <main class="perf-main">
+    <div class="sheet-wrapper">
+      <img src="/static/img/MusicSheet.png" alt="Music Sheet" />
+      <!-- 进度横线，top 百分比跟随倒计时移动 -->
+      <div class="progress-line" :style="{ top: progressPercent + '%' }"></div>
+    </div>
+  </main>
+
+  <!-- 底栏进度条 -->
+  <footer class="perf-footer">
+    <div class="footer-progress"></div>
+  </footer>
+
+</div>
+
+<!-- Vue 3 运行时 + ElementPlus 全局组件 (CDN) -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus"></script>
+<!-- 业务引擎 + Vue 应用 -->
+<script src="/static/js/performance.js"></script>
+<script>window.addEventListener('DOMContentLoaded', () => mountPerformanceApp());</script>
+<style>.el-select-dropdown{background:#fff!important;border:1px solid #ccc!important}</style>
+</body>
+</html>

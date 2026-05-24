@@ -1,0 +1,110 @@
+/* PinyonScript 手写体 (列3标签用) */
+@font-face {
+  font-family: 'PinyonScript';
+  src: url('/static/fonts/PinyonScript.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+:root {
+  --margin-x: 1.56%;          /* 左右留白 */
+  --header-h: 15%;            /* 顶栏 */
+  --footer-h: 2%;             /* 底栏  (main flex:1 自动占 83%) */
+
+  --bg-outer:    #FFFFFF;
+  --bg-content:  #D8D8D8;
+  --bg-header:   #F5F5F5;
+  --color-divider: #636363;
+  --bg-footer:   #000000;
+  --text-dark:   #333;
+  --text-dim:    #666;
+
+  --accent:       #ff5c28;
+  --accent-hover: #ff7b50;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-outer);
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: var(--text-dark);
+  overflow: hidden;
+}
+
+#app { display: flex; flex-direction: column; height: 100%; width: 100%; }
+
+/* ---- 顶栏: 4列 25% Grid, 列间 1px #636363 分隔线 ---- */
+.perf-header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 25%);
+  height: var(--header-h);
+  margin: 0 var(--margin-x);
+  background: var(--bg-content);
+  overflow: hidden;
+}
+
+.header-cell {
+  background: var(--bg-header);
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+.header-cell:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 1px;
+  background: var(--color-divider);
+}
+
+/* ====== 列1: BPM 号数及标签 (SVG Group 0+1) ======
+ * Group 0: x≈198..341 y≈35..150  居中大数字 "86"
+ * Group 1: x≈48..176 y≈136..171  下角小标签 "bpm"
+ * 布局: 大数字居中, "bpm" 绝对定位右下角(不贴边) */
+.col-number {
+  justify-content: center; align-items: center; position: relative;
+}
+.col-number .big-number {
+  font-size: 104px; font-weight: 700; line-height: 1;
+  color: var(--text-dark);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-variant-numeric: tabular-nums;
+}
+.col-number .label-bpm {
+  position: absolute;
+  left: 28px; bottom: 14px;       /* 左下角, 不贴边 */
+  font-family: 'PinyonScript', serif;
+  font-size: 28px; color: var(--text-dim);
+  line-height: 1; letter-spacing: 0.04em;
+}
+
+/* ---- 主内容区: 乐谱占位 ---- */
+.perf-main {
+  flex: 1; margin: 0 var(--margin-x); background: var(--bg-content);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.sheet-wrapper {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  background: #fff; border-radius: 4px; box-shadow: 0 2px 20px rgba(0,0,0,.08);
+  position: relative;
+}
+.sheet-wrapper img { width: 100%; height: 100%; object-fit: contain; }
+.progress-line {
+  position: absolute; left: 8%; right: 8%; height: 2px;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  transition: top 0.3s ease; z-index: 2;
+}
+
+/* ---- 底栏进度条 ---- */
+.perf-footer {
+  flex-shrink: 0;
+  height: var(--footer-h); margin: 0 var(--margin-x); background: #fff;
+  display: flex; align-items: center; overflow: hidden;
+}
+.footer-progress {
+  width: 78%; height: 100%; background: #000;
+}
