@@ -314,12 +314,11 @@ const PerformanceApp = {
       document.addEventListener('keydown', onKeydown);
       await nextTick();
       if (window.initTimeline) window.initTimeline();
-      // 获取第一个可用乐谱并渲染
       try {
-        const res = await fetch('/api/sheets');
-        const files = await res.json();
-        if (files.length && sheetContainer.value) {
-          const url = '/sheets/' + encodeURIComponent(files[0]);
+        var sheetRes = await fetch('/api/current-sheet');
+        var sheetData = await sheetRes.json();
+        if (sheetData.filename && sheetContainer.value) {
+          var url = '/sheets/' + encodeURIComponent(sheetData.filename);
           pdfRenderer = new PdfRenderer(sheetContainer.value);
           await pdfRenderer.load(url);
           sheetLoaded.value = true;
