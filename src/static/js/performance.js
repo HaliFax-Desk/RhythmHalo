@@ -6,7 +6,7 @@
  *   PerformanceApp — Vue 3 桥接引擎 → UI
  * ============================================================ */
 
-const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick } = Vue;
 
 // ============================================================
 // BeatEngine: BPM 驱动的节拍脉冲发生器
@@ -72,6 +72,52 @@ class BeatEngine {
 }
 
 // ============================================================
+// PdfRenderer: 用 pdf.js 将 PDF 逐页渲染为满宽 canvas
+// 零控件、无白边，多页垂直堆叠，容器可滚动查阅
+// ============================================================
+class PdfRenderer {
+  constructor(container) {
+    this._container = container;  // DOM 容器
+    this._loaded = false;
+    this._ratio = 2;              // 渲染分辨率倍数 (2x 高清)
+  }
+
+  get loaded() { return this._loaded; }
+
+  async load(url) {
+    this._clear();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdf.worker.min.js';
+    const doc = await pdfjsLib.getDocument(url).promise;
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({ scale: 1 });
+      const containerW = this._container.clientWidth;
+      const scale = containerW / viewport.width * this._ratio;
+      const scaledVp = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = scaledVp.width;
+      canvas.height = scaledVp.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+      this._container.appendChild(canvas);
+    }
+    this._loaded = true;
+  }
+
+  destroy() {
+    this._clear();
+    this._loaded = false;
+  }
+
+  _clear() {
+    while (this._container.firstChild) {
+      this._container.removeChild(this._container.firstChild);
+    }
+  }
+}
+
+// ============================================================
 // CountdownTimer: requestAnimationFrame 驱动的倒计时器
 // 精度优于 setInterval，显示 MM:SS
 // ============================================================
@@ -128,23 +174,73 @@ class CountdownTimer {
 }
 
 // ============================================================
+// SidePanelBlinker: rAF 驱动 HDR 闪烁
+// BPM → 周期 60000/bpm ms，亮度 20%→HDR上限，到达峰值瞬间回落到20%
+// ============================================================
+class SidePanelBlinker {
+  constructor(bpm = 86, minBrightness = 0.2, maxBrightness = 3) {
+    this._bpm = bpm;
+    this._min = minBrightness;
+    this._max = maxBrightness;
+    this._panels = null;
+    this._running = false;
+    this._raf = null;
+  }
+
+  get bpm() { return this._bpm; }
+
+  setBpm(v) { this._bpm = Math.max(1, v); }
+
+  start() {
+    this._panels = document.querySelectorAll('.side-panel');
+    if (!this._panels.length) return;
+    this._running = true;
+    this._tick();
+  }
+
+  stop() {
+    this._running = false;
+    cancelAnimationFrame(this._raf);
+  }
+
+  get _cycleMs() { return 60000 / this._bpm; }
+
+  _tick() {
+    if (!this._running) return;
+    const t = (performance.now() % this._cycleMs) / this._cycleMs;
+    const brightness = this._min + t * (this._max - this._min);
+    const filter = `brightness(${brightness.toFixed(2)}) contrast(1.02)`;
+    for (const p of this._panels) p.style.filter = filter;
+    this._raf = requestAnimationFrame(() => this._tick());
+  }
+}
+
+// ============================================================
 // Vue 3 应用：绑定引擎事件到响应式状态，暴露给模板
 // ============================================================
 const PerformanceApp = {
   setup() {
     /* ---- 引擎实例 ---- */
-    const beat  = new BeatEngine(120, 4);     // BPM=120, 4/4拍
+    const beat  = new BeatEngine(86, 4);     // BPM=86, 4/4拍
     const timer = new CountdownTimer(300);    // 5:00 倒计时
 
     /* ---- 响应式状态 (Vue ref) ---- */
     const isPlaying     = ref(false);
-    const bpm           = ref(120);
+    const bpm           = ref(86);
     const beatIndex     = ref(0);
     const beatsPerMeasure = ref(4);
     const timeDisplay   = ref('05:00');
-    const progressPercent = ref(0);   // 进度线 top 百分比
     const blinkCount    = ref(0);     // 累计闪烁次数
     const presetDuration = ref(300);  // 下拉框当前值
+    const showBars       = ref(true);   // 上下栏显示/收起
+    const sheetLoaded    = ref(false);  // 乐谱加载状态
+    const sheetContainer = ref(null);   // DOM 容器引用
+    const progressVisible = ref(false);
+    const progressText = ref('');
+    const progressPercent = ref(78);
+    let pdfRenderer      = null;
+    const blinker        = new SidePanelBlinker(86, 0.2, 3);
+    let progressRaf    = null;
 
     // 拍点圆点数组 [0,1,2,3]
     const beatDots = computed(() =>
@@ -159,9 +255,6 @@ const PerformanceApp = {
 
     timer.onTick(evt => {
       timeDisplay.value = evt.display;
-      progressPercent.value = timer._total > 0
-        ? (1 - evt.remaining / timer._total) * 90  // 0~90% 避免出界
-        : 0;
     });
 
     /* ---- 操作函数 ---- */
@@ -178,8 +271,32 @@ const PerformanceApp = {
       blinkCount.value = 0;
     }
 
-    function onBpmChange(v)    { bpm.value = v; beat.setBpm(v); }
+    function onBpmChange(v)    { bpm.value = v; beat.setBpm(v); blinker.setBpm(v); }
     function onPresetChange(v) { timer.setTotal(v); }
+    function toggleBars()    { showBars.value = !showBars.value; }
+
+    function showProgress(delay, text) {
+      cancelAnimationFrame(progressRaf);
+      progressText.value = text;
+      progressVisible.value = true;
+      progressPercent.value = 100;
+      if (delay > 0) {
+        const start = performance.now();
+        const tick = () => {
+          const elapsed = performance.now() - start;
+          const pct = Math.max(0, 100 - (elapsed / delay) * 100);
+          progressPercent.value = pct;
+          if (pct > 0) {
+            progressRaf = requestAnimationFrame(tick);
+          } else {
+            progressVisible.value = false;
+            progressPercent.value = 78;
+          }
+        };
+        progressRaf = requestAnimationFrame(tick);
+      }
+    }
+    window.showProgress = showProgress;
 
     /* ---- 键盘快捷键 ---- */
     function onKeydown(e) {
@@ -189,15 +306,36 @@ const PerformanceApp = {
       if (e.key === 'ArrowUp')   { e.preventDefault(); onBpmChange(Math.min(400, bpm.value + 1)); }
       if (e.key === 'ArrowDown') { e.preventDefault(); onBpmChange(Math.max(20,  bpm.value - 1)); }
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey) handleReset();
+      if (e.key === 'b' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleBars(); }
     }
 
-    onMounted(() => document.addEventListener('keydown', onKeydown));
-    onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown));
+    onMounted(async () => {
+      blinker.start();
+      document.addEventListener('keydown', onKeydown);
+      await nextTick();
+      // 获取第一个可用乐谱并渲染
+      try {
+        const res = await fetch('/api/sheets');
+        const files = await res.json();
+        if (files.length && sheetContainer.value) {
+          const url = '/sheets/' + encodeURIComponent(files[0]);
+          pdfRenderer = new PdfRenderer(sheetContainer.value);
+          await pdfRenderer.load(url);
+          sheetLoaded.value = true;
+        }
+      } catch (e) {
+        console.error('PDF 加载失败:', e);
+      }
+    });
+    onBeforeUnmount(() => { blinker.stop(); cancelAnimationFrame(progressRaf); document.removeEventListener('keydown', onKeydown); });
 
     return {
       isPlaying, bpm, beatIndex, beatsPerMeasure, beatDots,
-      timeDisplay, progressPercent, blinkCount, presetDuration,
-      togglePlay, handleReset, onBpmChange, onPresetChange,
+      timeDisplay, blinkCount, presetDuration,
+      showBars,
+      sheetLoaded, sheetContainer,
+      progressVisible, progressText, progressPercent, showProgress,
+      togglePlay, handleReset, onBpmChange, onPresetChange, toggleBars,
     };
   },
 };

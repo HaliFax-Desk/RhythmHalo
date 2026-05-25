@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RhythmHalo · Performance</title>
-<!-- ElementPlus UI 组件库 (CDN) -->
-<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<!-- ElementPlus UI 组件库 -->
+<link rel="stylesheet" href="/static/vendor/element-plus.css">
 <!-- 项目样式：严格对应 UIdesign/mainpage.svg 的坐标布局 -->
 <link rel="stylesheet" href="/static/css/performance.css">
 </head>
@@ -20,19 +20,23 @@
 -->
 <div id="app">
 
-  <!-- ====== 顶栏 ====== -->
-  <header class="perf-header">
+  <!-- 左右侧边高亮面板 -->
+  <div class="side-panel side-panel--left"></div>
+  <div class="side-panel side-panel--right"></div>
 
-    <!-- 列1: bpm / 86 -->
+  <!-- ====== 顶栏 (可上滑收起) ====== -->
+  <header class="perf-header top-header" :class="{ 'top-header--hidden': !showBars }">
+
+    <!-- 列1: bpm -->
     <div class="header-cell col-number">
-      <span class="big-number">86</span>
+      <span class="big-number">[[ bpm ]]</span>
       <span class="label-bpm">bpm</span>
     </div>
 
-    <!-- 列2: loop / 1 -->
+    <!-- 列2: Key / 1 -->
     <div class="header-cell col-number">
-      <span class="big-number">1</span>
-      <span class="label-bpm">loop</span>
+      <span class="big-number" style="font-family:'PinyonScript',serif;">#f</span>
+      <span class="label-bpm">Key</span>
     </div>
 
     <!-- 列3: Para / 3 -->
@@ -47,25 +51,44 @@
     </div>
   </header>
 
-  <!-- ====== 主区 (y=186..1128): 乐谱占位 ====== -->
-  <main class="perf-main">
-    <div class="sheet-wrapper">
-      <img src="/static/img/MusicSheet.png" alt="Music Sheet" />
-      <!-- 进度横线，top 百分比跟随倒计时移动 -->
-      <div class="progress-line" :style="{ top: progressPercent + '%' }"></div>
+  <!-- 主区 -->
+  <main class="perf-main" :class="{ 'perf-main--full': !showBars, 'perf-main--progress': progressVisible }">
+    <div class="sheet-wrapper" ref="sheetContainer">
+      <div v-show="!sheetLoaded" class="sheet-placeholder">加载乐谱中...</div>
     </div>
   </main>
 
-  <!-- 底栏进度条 -->
-  <footer class="perf-footer">
-    <div class="footer-progress"></div>
+  <!-- 底栏: 可下滑收起 -->
+  <header class="perf-header bottom-header" :class="{ 'bottom-header--hidden': !showBars }">
+    <div class="header-cell col-number">
+      <span class="big-number-sm">4:03</span>
+    </div>
+    <div class="header-cell col-number">
+      <span class="big-number-sm">65</span>
+      <span class="label-bpm">Bar</span>
+    </div>
+    <div class="header-cell col-number">
+      <span class="big-number-sm">3</span>
+      <span class="label-bpm">Para</span>
+    </div>
+    <div class="header-cell col-number">
+      <span class="big-number-sm" style="font-family:'PinyonScript',serif;">gliss</span>
+    </div>
+  </header>
+
+  <!-- 进度条 -->
+  <footer class="perf-footer" :class="{ 'perf-footer--active': progressVisible }">
+    <div class="footer-progress" :style="{ width: progressPercent + '%' }"></div>
+    <span v-if="progressVisible" class="progress-text">[[ progressText ]]</span>
   </footer>
 
 </div>
 
-<!-- Vue 3 运行时 + ElementPlus 全局组件 (CDN) -->
-<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-<script src="https://unpkg.com/element-plus"></script>
+<!-- Vue 3 运行时 + ElementPlus 全局组件 -->
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/vendor/element-plus.full.js"></script>
+<!-- pdf.js: Mozilla 官方 PDF 渲染库 -->
+<script src="/static/vendor/pdf.min.js"></script>
 <!-- 业务引擎 + Vue 应用 -->
 <script src="/static/js/performance.js"></script>
 <script>window.addEventListener('DOMContentLoaded', () => mountPerformanceApp());</script>

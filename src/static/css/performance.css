@@ -8,8 +8,9 @@
 
 :root {
   --margin-x: 1.56%;          /* 左右留白 */
-  --header-h: 15%;            /* 顶栏 */
-  --footer-h: 2%;             /* 底栏  (main flex:1 自动占 83%) */
+  --header-h: 15%;            /* 顶栏/底栏 */
+  --main-h: 68%;              /* 主内容区 */
+  --footer-h: 2%;             /* 进度条 */
 
   --bg-outer:    #FFFFFF;
   --bg-content:  #D8D8D8;
@@ -34,7 +35,20 @@ html, body {
   overflow: hidden;
 }
 
-#app { display: flex; flex-direction: column; height: 100%; width: 100%; }
+#app { display: flex; flex-direction: column; height: 100%; width: 100%; position: relative; }
+
+/* ---- 左右侧边 HDR 高亮面板 ---- */
+.side-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--margin-x);
+  z-index: -1;
+  pointer-events: none;
+  background: #ffffff;
+}
+.side-panel--left  { left: 0; }
+.side-panel--right { right: 0; }
 
 /* ---- 顶栏: 4列 25% Grid, 列间 1px #636363 分隔线 ---- */
 .perf-header {
@@ -42,9 +56,11 @@ html, body {
   display: grid;
   grid-template-columns: repeat(4, 25%);
   height: var(--header-h);
+  max-height: var(--header-h);
   margin: 0 var(--margin-x);
   background: var(--bg-content);
   overflow: hidden;
+  transition: max-height 0.35s ease;
 }
 
 .header-cell {
@@ -74,6 +90,12 @@ html, body {
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-variant-numeric: tabular-nums;
 }
+.col-number .big-number-sm {
+  font-size: 74px; font-weight: 700; line-height: 1;
+  color: var(--text-dark);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-variant-numeric: tabular-nums;
+}
 .col-number .label-bpm {
   position: absolute;
   left: 28px; bottom: 14px;       /* 左下角, 不贴边 */
@@ -84,27 +106,63 @@ html, body {
 
 /* ---- 主内容区: 乐谱占位 ---- */
 .perf-main {
-  flex: 1; margin: 0 var(--margin-x); background: var(--bg-content);
+  flex-shrink: 0;
+  height: var(--main-h); margin: 0 var(--margin-x); background: var(--bg-content);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
+  transition: height 0.35s ease;
 }
-.sheet-wrapper {
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-  background: #fff; border-radius: 4px; box-shadow: 0 2px 20px rgba(0,0,0,.08);
-  position: relative;
+.perf-main--full { height: 98%; }
+.perf-main--progress { height: 66%; }
+
+/* ---- 顶栏: 可上滑收起 ---- */
+.top-header {
+  transition: transform 0.35s ease, max-height 0.35s ease;
 }
-.sheet-wrapper img { width: 100%; height: 100%; object-fit: contain; }
-.progress-line {
-  position: absolute; left: 8%; right: 8%; height: 2px;
-  background: var(--accent); box-shadow: 0 0 8px var(--accent);
-  transition: top 0.3s ease; z-index: 2;
+.top-header--hidden {
+  max-height: 0;
+  transform: translateY(-100%);
 }
 
+/* ---- 底栏: 可下滑收起 ---- */
+.bottom-header {
+  transition: transform 0.35s ease, max-height 0.35s ease;
+}
+.bottom-header--hidden {
+  max-height: 0;
+  transform: translateY(100%);
+}
+.sheet-wrapper {
+  width: 100%; height: 100%; position: relative;
+  overflow-y: auto; overflow-x: hidden;
+  background: #fff; border-radius: 4px; box-shadow: 0 2px 20px rgba(0,0,0,.08);
+}
+.sheet-wrapper canvas {
+  display: block; width: 100%; height: auto;
+}
+.sheet-placeholder {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--text-dim);
+}
 /* ---- 底栏进度条 ---- */
 .perf-footer {
   flex-shrink: 0;
   height: var(--footer-h); margin: 0 var(--margin-x); background: #fff;
   display: flex; align-items: center; overflow: hidden;
+  position: relative;
+  transition: height 0.35s ease;
 }
+.perf-footer--active { height: 4%; }
 .footer-progress {
-  width: 78%; height: 100%; background: #000;
+  height: 100%; background: #000;
+}
+.progress-text {
+  position: absolute;
+  left: 20px; top: 50%; transform: translateY(-50%);
+  z-index: 1;
+  color: #fff;
+  font-size: 14px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
