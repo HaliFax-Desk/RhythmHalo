@@ -8,14 +8,11 @@
 <link rel="stylesheet" href="/static/vendor/element-plus.css">
 <!-- 项目样式：严格对应 UIdesign/mainpage.svg 的坐标布局 -->
 <link rel="stylesheet" href="/static/css/performance.css">
+<!-- 时间轴组件 -->
+<link rel="stylesheet" href="/static/css/timeline.css">
 </head>
 <body>
 
-<!--
-  布局对应 SVG (2048x1152):
-    顶栏 4列 h=186, w=503, 1px #636363 分隔线
-  Vue 定界符 [[ ]] 避免与 Jinja2 markup 冲突
--->
 <div id="app">
 
   <!-- 左右侧边高亮面板 -->
@@ -56,21 +53,22 @@
     </div>
   </main>
 
-  <!-- 底栏: 可下滑收起 -->
+  <!-- 底栏: 时间轴编辑器 -->
   <header class="perf-header bottom-header" :class="{ 'bottom-header--hidden': !showBars }">
-    <div class="header-cell col-number">
-      <span class="big-number-sm">4:03</span>
-    </div>
-    <div class="header-cell col-number">
-      <span class="big-number-sm">65</span>
-      <span class="label-bpm">Bar</span>
-    </div>
-    <div class="header-cell col-number">
-      <span class="big-number-sm">3</span>
-      <span class="label-bpm">Para</span>
-    </div>
-    <div class="header-cell col-number">
-      <span class="big-number-sm" style="font-family:'PinyonScript',serif;">gliss</span>
+    <div class="tl-root">
+      <div class="tl-main">
+        <div class="tl-main-inner">
+          <div class="tl-track-labels" id="trackLabels"></div>
+          <div class="tl-timeline-area" id="timelineArea">
+            <div class="tl-timeline-inner" id="timelineInner">
+              <div class="ruler"><canvas id="rulerCanvas"></canvas></div>
+              <div id="tracksContainer"></div>
+              <div class="playhead" id="playhead"></div>
+              <div class="click-catcher" id="clickCatcher"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -89,6 +87,8 @@
 <script src="/static/vendor/pdf.min.js"></script>
 <!-- 业务引擎 + Vue 应用 -->
 <script src="/static/js/performance.js"></script>
+<!-- 时间轴编辑器 -->
+<script src="/static/js/timeline.js"></script>
 <script>window.addEventListener('DOMContentLoaded', () => mountPerformanceApp());</script>
 <style>.el-select-dropdown{background:#fff!important;border:1px solid #ccc!important}</style>
 </body>

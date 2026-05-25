@@ -313,6 +313,7 @@ const PerformanceApp = {
       blinker.start();
       document.addEventListener('keydown', onKeydown);
       await nextTick();
+      if (window.initTimeline) window.initTimeline();
       // 获取第一个可用乐谱并渲染
       try {
         const res = await fetch('/api/sheets');

@@ -20,6 +20,8 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .toolbar {
@@ -38,7 +40,7 @@
     font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
     font-size: 18px; font-weight: 600;
     color: #333;
-    min-width: 100px;
+    min-width: 120px;
   }
   .toolbar input[type=range] { width: 160px; accent-color: #ff5c28; }
   .toolbar button {
@@ -52,7 +54,13 @@
   }
   .toolbar button:hover { background: #f0f0f0; }
 
-  .main { flex: 1; display: flex; overflow: hidden; }
+  .main { flex: 1; display: flex; overflow: hidden; justify-content: center; align-items: center; }
+  .main-inner {
+    display: flex;
+    height: calc(var(--ruler-h) + 2 * var(--track-h));
+    border: 1px solid #e8e8e8;
+    width: 100%;
+  }
 
   .track-labels {
     width: var(--track-label-w);
@@ -81,7 +89,9 @@
     overflow-x: auto; overflow-y: hidden;
     background: #fff;
     position: relative;
+    scrollbar-width: none;
   }
+  .timeline-area::-webkit-scrollbar { display: none; }
   .timeline-inner {
     position: relative;
     min-width: 100%;
@@ -163,16 +173,19 @@
   <span class="time-display" id="timeDisplay">00:00.000</span>
   <button id="fitBtn">适配窗口</button>
   <button id="snapBtn">吸附: 开</button>
+  <button id="playBtn">▶ 播放</button>
 </div>
 
 <div class="main">
-  <div class="track-labels" id="trackLabels"></div>
-  <div class="timeline-area" id="timelineArea">
-    <div class="timeline-inner" id="timelineInner">
-      <div class="ruler"><canvas id="rulerCanvas"></canvas></div>
-      <div id="tracksContainer"></div>
-      <div class="playhead" id="playhead"></div>
-      <div class="click-catcher" id="clickCatcher"></div>
+  <div class="main-inner">
+    <div class="track-labels" id="trackLabels"></div>
+    <div class="timeline-area" id="timelineArea">
+      <div class="timeline-inner" id="timelineInner">
+        <div class="ruler"><canvas id="rulerCanvas"></canvas></div>
+        <div id="tracksContainer"></div>
+        <div class="playhead" id="playhead"></div>
+        <div class="click-catcher" id="clickCatcher"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -200,6 +213,8 @@ const CLIPS = [
 let pxPerSec = 80;
 let currentTime = 0;
 let snapEnabled = true;
+let playing = false;
+let playRaf = null;
 
 const timelineArea  = document.getElementById('timelineArea');
 const timelineInner = document.getElementById('timelineInner');
@@ -268,31 +283,51 @@ function renderRuler() {
   ctx.font = '10px "Segoe UI","Microsoft YaHei",sans-serif';
   ctx.textAlign = 'center';
   const step = calcTickStep();
+  const majorEvery = calcMajorEvery();
+  let tickIdx = 0;
   for (let t = 0; t <= TOTAL_DURATION + step; t += step) {
+    tickIdx++;
     const x = t * pxPerSec;
     if (x < -20 || x > rulerW + 20) continue;
-    const isMajor = (Math.round(t * 1000) % Math.round(step * 1000 * 5) < 1) || step >= 1;
+    const isMajor = (tickIdx % majorEvery === 1) || step >= 0.5;
     const h = isMajor ? 18 : 10;
     ctx.beginPath();
     ctx.moveTo(x, 36);
     ctx.lineTo(x, 36 - h);
     ctx.stroke();
-    if (isMajor) { ctx.fillText(fmtTime(t), x, 14); }
+    if (isMajor) { ctx.fillText(fmtTimeRuler(t), x, 14); }
   }
 }
 
 function calcTickStep() {
   const viewSec = timelineArea.clientWidth / pxPerSec;
-  if (viewSec <= 2)  return 0.1;
-  if (viewSec <= 5)  return 0.25;
-  if (viewSec <= 10) return 0.5;
-  if (viewSec <= 20) return 1;
-  if (viewSec <= 60) return 2;
-  return 5;
+  if (viewSec <= 5)  return 0.1;
+  if (viewSec <= 15) return 0.2;
+  if (viewSec <= 30) return 0.5;
+  return 1;
+}
+
+function calcMajorEvery() {
+  const viewSec = timelineArea.clientWidth / pxPerSec;
+  if (viewSec <= 3)  return 10;
+  if (viewSec <= 10) return 5;
+  if (viewSec <= 30) return 4;
+  return 2;
 }
 
 function updatePlayhead() {
-  playheadEl.style.left = (currentTime * pxPerSec - timelineArea.scrollLeft) + 'px';
+  playheadEl.style.left = (currentTime * pxPerSec) + 'px';
+}
+
+function centerScroll(smooth) {
+  const playheadTarget = timelineArea.clientWidth / 3;
+  const maxScroll = Math.max(0, TOTAL_DURATION * pxPerSec - timelineArea.clientWidth);
+  const target = Math.min(maxScroll, Math.max(0, currentTime * pxPerSec - playheadTarget));
+  if (smooth) {
+    timelineArea.scrollLeft += (target - timelineArea.scrollLeft) * 0.12;
+  } else {
+    timelineArea.scrollLeft = target;
+  }
 }
 
 // ======================== 全局重绘 ========================
@@ -305,19 +340,38 @@ function redraw() {
   updatePlayhead();
 }
 
-// ======================== 点击设置播放头 ========================
+// ======================== 点击 ========================
 clickCatcher.addEventListener('click', function (e) {
+  setTimeFromEvent(e);
+});
+
+// ======================== 拖拽 (无极) ========================
+let dragging = false;
+clickCatcher.addEventListener('mousedown', function (e) {
+  dragging = true;
+  setTimeFromEvent(e);
+});
+window.addEventListener('mousemove', function (e) {
+  if (!dragging) return;
+  setTimeFromEvent(e);
+});
+window.addEventListener('mouseup', function () {
+  dragging = false;
+  centerScroll(false);
+});
+
+function setTimeFromEvent(e) {
   const rect = clickCatcher.getBoundingClientRect();
-  const x = e.clientX - rect.left + timelineArea.scrollLeft;
-  let t = x / pxPerSec;
+  const x = e.clientX - rect.left;
+  let t = Math.max(0, Math.min(TOTAL_DURATION, x / pxPerSec));
   if (snapEnabled) {
-    const snapStep = calcTickStep() / 2;
+    const snapStep = 0.1;
     t = Math.round(t / snapStep) * snapStep;
   }
-  currentTime = Math.max(0, Math.min(TOTAL_DURATION, t));
+  currentTime = t;
   updatePlayhead();
   updateTimeDisplay();
-});
+}
 
 // ======================== 缩放 ========================
 zoomSlider.addEventListener('input', function () {
@@ -329,10 +383,17 @@ zoomSlider.addEventListener('input', function () {
 // ======================== 时间格式化 ========================
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
-  const s = (sec % 60).toFixed(1);
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(4,'0')}`;
+  const s = (sec % 60);
+  return `${String(m).padStart(2,'0')}:${s.toFixed(3).padStart(6,'0')}`;
+}
+function fmtTimeRuler(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 function updateTimeDisplay() { timeDisplay.textContent = fmtTime(currentTime); }
+
+window.getCurrentTime = function () { return currentTime; };
 
 // ======================== 适配窗口 ========================
 document.getElementById('fitBtn').addEventListener('click', function () {
@@ -349,54 +410,81 @@ document.getElementById('snapBtn').addEventListener('click', function () {
   this.textContent = '吸附: ' + (snapEnabled ? '开' : '关');
 });
 
-// ======================== 滚轮 (Ctrl+缩放) ========================
-timelineArea.addEventListener('wheel', function (e) {
-  if (!e.ctrlKey && !e.metaKey) return;
-  e.preventDefault();
-  pxPerSec = Math.round(Math.max(20, Math.min(400, pxPerSec - e.deltaY * 0.5)));
-  zoomSlider.value = pxPerSec;
-  zoomLabel.textContent = pxPerSec + ' px/s';
-  redraw();
-}, { passive: false });
+// ======================== 播放控制 ========================
+const playBtn = document.getElementById('playBtn');
 
-// ======================== 滚动同步 ========================
-timelineArea.addEventListener('scroll', updatePlayhead);
+function play() {
+  if (playing) return;
+  if (currentTime >= TOTAL_DURATION) currentTime = 0;
+  playing = true;
+  playBtn.textContent = '⏸ 暂停';
+  let last = performance.now();
+  (function tick() {
+    if (!playing) return;
+    const now = performance.now();
+    currentTime = Math.min(TOTAL_DURATION, currentTime + (now - last) / 1000);
+    last = now;
+    updatePlayhead();
+    updateTimeDisplay();
+    centerScroll(true);
+    if (currentTime >= TOTAL_DURATION) {
+      pause();
+      currentTime = TOTAL_DURATION;
+      updatePlayhead();
+      updateTimeDisplay();
+      return;
+    }
+    playRaf = requestAnimationFrame(tick);
+  })();
+}
+
+function pause() {
+  playing = false;
+  playBtn.textContent = '▶ 播放';
+  cancelAnimationFrame(playRaf);
+}
+
+function togglePlay() {
+  playing ? pause() : play();
+}
+
+playBtn.addEventListener('click', togglePlay);
+
+// ======================== 滚轮 ========================
+timelineArea.addEventListener('wheel', function (e) {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    pxPerSec = Math.round(Math.max(20, Math.min(400, pxPerSec - e.deltaY * 0.5)));
+    zoomSlider.value = pxPerSec;
+    zoomLabel.textContent = pxPerSec + ' px/s';
+    redraw();
+    return;
+  }
+  e.preventDefault();
+  timelineArea.scrollLeft += e.deltaY * 1.2;
+}, { passive: false });
 
 // ======================== 键盘快捷键 ========================
 document.addEventListener('keydown', function (e) {
   if (e.target.tagName === 'INPUT') return;
   if (e.key === ' ') {
     e.preventDefault();
-    currentTime += 0.1;
-    if (currentTime > TOTAL_DURATION) currentTime = 0;
-    updatePlayhead(); updateTimeDisplay();
-    const viewW = timelineArea.clientWidth;
-    if (currentTime * pxPerSec > timelineArea.scrollLeft + viewW - 40) {
-      timelineArea.scrollLeft = currentTime * pxPerSec - viewW + 40;
-    }
-    if (currentTime * pxPerSec < timelineArea.scrollLeft) {
-      timelineArea.scrollLeft = currentTime * pxPerSec;
-    }
+    togglePlay();
   }
   if (e.key === 'ArrowLeft') {
     e.preventDefault();
-    currentTime = Math.max(0, currentTime - 0.1);
-    updatePlayhead(); updateTimeDisplay();
-    if (currentTime * pxPerSec < timelineArea.scrollLeft + 10) {
-      timelineArea.scrollLeft = Math.max(0, currentTime * pxPerSec - 20);
-    }
+    if (playing) return;
+    currentTime = Math.max(0, +(currentTime - 0.01).toFixed(4));
+    updatePlayhead(); updateTimeDisplay(); centerScroll();
   }
   if (e.key === 'ArrowRight') {
     e.preventDefault();
-    currentTime = Math.min(TOTAL_DURATION, currentTime + 0.1);
-    updatePlayhead(); updateTimeDisplay();
-    const viewW = timelineArea.clientWidth;
-    if (currentTime * pxPerSec > timelineArea.scrollLeft + viewW - 10) {
-      timelineArea.scrollLeft = currentTime * pxPerSec - viewW + 20;
-    }
+    if (playing) return;
+    currentTime = Math.min(TOTAL_DURATION, +(currentTime + 0.01).toFixed(4));
+    updatePlayhead(); updateTimeDisplay(); centerScroll();
   }
-  if (e.key === 'Home') { currentTime = 0; timelineArea.scrollLeft = 0; updatePlayhead(); updateTimeDisplay(); }
-  if (e.key === 'End')  { currentTime = TOTAL_DURATION; timelineArea.scrollLeft = TOTAL_DURATION * pxPerSec; updatePlayhead(); updateTimeDisplay(); }
+  if (e.key === 'Home') { pause(); currentTime = 0; timelineArea.scrollLeft = 0; updatePlayhead(); updateTimeDisplay(); }
+  if (e.key === 'End')  { pause(); currentTime = TOTAL_DURATION; timelineArea.scrollLeft = TOTAL_DURATION * pxPerSec; updatePlayhead(); updateTimeDisplay(); }
 });
 
 window.addEventListener('resize', redraw);

@@ -1,0 +1,164 @@
+.tl-root {
+  --tl-track-label-w: 130px;
+  --tl-ruler-h: 36px;
+  --tl-track-h: 56px;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ====== 底部 header 覆写 —— 必须清零 perf-header 所有约束 ====== */
+.perf-header.bottom-header {
+  display: flex !important;
+  flex-direction: column;
+  grid-template-columns: none;
+  height: auto;
+  min-height: 0;
+  max-height: 220px;
+  margin: 0;
+  overflow: visible;
+  background: transparent;
+}
+.perf-header.bottom-header.bottom-header--hidden {
+  max-height: 0;
+  overflow: hidden;
+}
+
+/* ====== 主区域 ====== */
+.tl-main {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  justify-content: center;
+  align-items: center;
+}
+.tl-main-inner {
+  display: flex;
+  height: calc(var(--tl-ruler-h) + 2 * var(--tl-track-h));
+  border: 1px solid #e8e8e8;
+  width: 100%;
+}
+
+/* ====== 轨道标签列 ====== */
+.tl-track-labels {
+  width: var(--tl-track-label-w);
+  flex-shrink: 0;
+  background: #fafafa;
+  border-right: 1px solid #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tl-track-labels .ruler-spacer {
+  height: var(--tl-ruler-h);
+  flex-shrink: 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.tl-track-label {
+  height: var(--tl-track-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid #f0f0f0;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tl-track-label:hover { background: #f0f0f0; }
+.track-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+/* ====== 时间轴滚动区 ====== */
+.tl-timeline-area {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #fff;
+  position: relative;
+  scrollbar-width: none;
+}
+.tl-timeline-area::-webkit-scrollbar { display: none; }
+.tl-timeline-inner {
+  position: relative;
+  min-width: 100%;
+}
+
+/* ====== 标尺 ====== */
+.ruler {
+  position: sticky;
+  top: 0;
+  height: var(--tl-ruler-h);
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  z-index: 5;
+}
+.ruler canvas { display: block; height: 100%; }
+
+/* ====== 播放头 ====== */
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e53935;
+  z-index: 6;
+  pointer-events: none;
+}
+.playhead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid #e53935;
+}
+
+/* ====== 轨道行 ====== */
+.track-row {
+  height: var(--tl-track-h);
+  border-bottom: 1px solid #f5f5f5;
+  position: relative;
+  background: #fff;
+}
+
+/* ====== 片段色块 ====== */
+.clip {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+  transition: filter 0.12s, box-shadow 0.12s;
+  min-width: 40px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+}
+.clip:hover {
+  filter: brightness(1.08);
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+/* ====== 点击/拖拽层 ====== */
+.click-catcher {
+  position: absolute;
+  top: var(--tl-ruler-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  cursor: col-resize;
+}
