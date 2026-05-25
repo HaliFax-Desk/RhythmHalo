@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Video Editing Timeline</title>
+<style>
+  :root {
+    --track-label-w: 130px;
+    --ruler-h: 36px;
+    --track-h: 56px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #ffffff;
+    color: #333;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .toolbar {
+    flex-shrink: 0;
+    height: 44px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    z-index: 10;
+  }
+  .toolbar label { color: #999; font-size: 12px; }
+  .toolbar .time-display {
+    font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+    font-size: 18px; font-weight: 600;
+    color: #333;
+    min-width: 100px;
+  }
+  .toolbar input[type=range] { width: 160px; accent-color: #ff5c28; }
+  .toolbar button {
+    padding: 6px 14px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    color: #555;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: #f0f0f0; }
+
+  .main { flex: 1; display: flex; overflow: hidden; }
+
+  .track-labels {
+    width: var(--track-label-w);
+    flex-shrink: 0;
+    background: #fafafa;
+    border-right: 1px solid #e8e8e8;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .track-labels .ruler-spacer {
+    height: var(--ruler-h); flex-shrink: 0;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  .track-label {
+    height: var(--track-h); flex-shrink: 0;
+    display: flex; align-items: center;
+    padding: 0 12px;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 8px; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .track-label:hover { background: #f0f0f0; }
+  .track-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .timeline-area {
+    flex: 1;
+    overflow-x: auto; overflow-y: hidden;
+    background: #fff;
+    position: relative;
+  }
+  .timeline-inner {
+    position: relative;
+    min-width: 100%;
+  }
+
+  .ruler {
+    position: sticky; top: 0;
+    height: var(--ruler-h);
+    background: #fafafa;
+    border-bottom: 1px solid #e8e8e8;
+    z-index: 5;
+  }
+  .ruler canvas { display: block; height: 100%; }
+
+  .playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: #e53935;
+    z-index: 6;
+    pointer-events: none;
+  }
+  .playhead::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -6px;
+    width: 0; height: 0;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 8px solid #e53935;
+  }
+
+  .track-row {
+    height: var(--track-h);
+    border-bottom: 1px solid #f5f5f5;
+    position: relative;
+    background: #fff;
+  }
+
+  .clip {
+    position: absolute;
+    top: 8px; bottom: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex; align-items: center;
+    padding: 0 10px;
+    font-size: 11px; font-weight: 600;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: none;
+    transition: filter 0.12s, box-shadow 0.12s;
+    min-width: 40px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+  }
+  .clip:hover {
+    filter: brightness(1.08);
+    z-index: 2;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  .click-catcher {
+    position: absolute;
+    top: var(--ruler-h);
+    left: 0; right: 0; bottom: 0;
+    z-index: 4;
+    cursor: col-resize;
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label>缩放</label>
+  <input type="range" id="zoomSlider" min="20" max="400" value="80" />
+  <span id="zoomLabel" style="min-width:40px; font-weight:600;">80 px/s</span>
+  <span style="color:#ccc;">|</span>
+  <span class="time-display" id="timeDisplay">00:00.000</span>
+  <button id="fitBtn">适配窗口</button>
+  <button id="snapBtn">吸附: 开</button>
+</div>
+
+<div class="main">
+  <div class="track-labels" id="trackLabels"></div>
+  <div class="timeline-area" id="timelineArea">
+    <div class="timeline-inner" id="timelineInner">
+      <div class="ruler"><canvas id="rulerCanvas"></canvas></div>
+      <div id="tracksContainer"></div>
+      <div class="playhead" id="playhead"></div>
+      <div class="click-catcher" id="clickCatcher"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+
+const TOTAL_DURATION = 30;
+
+const TRACKS = [
+  { id: 't1', name: 'Track 1',  dot: '#555555', clipBg: '#555555' },
+  { id: 't2', name: 'Track 2',  dot: '#555555', clipBg: '#555555' },
+];
+
+const CLIPS = [
+  { track:'t1', start:0.5,  end:6.2,  label:'开场片头' },
+  { track:'t1', start:7.0,  end:14.5, label:'主内容 A' },
+  { track:'t1', start:15.0, end:22.0, label:'过渡片段' },
+  { track:'t1', start:22.5, end:28.0, label:'结尾字幕' },
+  { track:'t2', start:3.0,  end:9.0,  label:'B-Roll 素材' },
+  { track:'t2', start:10.0, end:18.0, label:'画中画' },
+  { track:'t2', start:18.5, end:26.0, label:'蒙太奇' },
+];
+
+let pxPerSec = 80;
+let currentTime = 0;
+let snapEnabled = true;
+
+const timelineArea  = document.getElementById('timelineArea');
+const timelineInner = document.getElementById('timelineInner');
+const tracksContainer = document.getElementById('tracksContainer');
+const trackLabels   = document.getElementById('trackLabels');
+const rulerCanvas   = document.getElementById('rulerCanvas');
+const playheadEl    = document.getElementById('playhead');
+const clickCatcher  = document.getElementById('clickCatcher');
+const timeDisplay   = document.getElementById('timeDisplay');
+const zoomSlider    = document.getElementById('zoomSlider');
+const zoomLabel     = document.getElementById('zoomLabel');
+
+// ======================== 构建轨道标签 ========================
+const spacer = document.createElement('div');
+spacer.className = 'ruler-spacer';
+trackLabels.appendChild(spacer);
+TRACKS.forEach(t => {
+  const el = document.createElement('div');
+  el.className = 'track-label';
+  el.innerHTML = `<span class="track-dot" style="background:${t.dot}"></span>${t.name}`;
+  trackLabels.appendChild(el);
+});
+
+// ======================== 构建轨道 ========================
+TRACKS.forEach(t => {
+  const el = document.createElement('div');
+  el.className = 'track-row';
+  el.dataset.trackId = t.id;
+  tracksContainer.appendChild(el);
+});
+
+// ======================== 渲染片段 ========================
+function renderClips() {
+  const trackEls = tracksContainer.querySelectorAll('.track-row');
+  trackEls.forEach(el => { el.querySelectorAll('.clip').forEach(c => c.remove()); });
+
+  CLIPS.forEach(clip => {
+    const trackEl = tracksContainer.querySelector(`[data-track-id="${clip.track}"]`);
+    if (!trackEl) return;
+    const track = TRACKS.find(t => t.id === clip.track);
+    const el = document.createElement('div');
+    el.className = 'clip';
+    el.style.background = track.clipBg;
+    el.style.left  = (clip.start * pxPerSec) + 'px';
+    el.style.width = ((clip.end - clip.start) * pxPerSec) + 'px';
+    el.textContent = clip.label;
+    el.title = `${clip.label}  [${fmtTime(clip.start)} → ${fmtTime(clip.end)}]`;
+    trackEl.appendChild(el);
+  });
+}
+
+// ======================== 标尺 ========================
+function renderRuler() {
+  const dpr = window.devicePixelRatio || 1;
+  const rulerW = Math.max(timelineArea.clientWidth, TOTAL_DURATION * pxPerSec);
+  rulerCanvas.width  = rulerW * dpr;
+  rulerCanvas.height = 36 * dpr;
+  rulerCanvas.style.width  = rulerW + 'px';
+  rulerCanvas.style.height = '36px';
+  const ctx = rulerCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#fafafa';
+  ctx.fillRect(0, 0, rulerW, 36);
+  ctx.strokeStyle = '#ccc';
+  ctx.fillStyle   = '#666';
+  ctx.font = '10px "Segoe UI","Microsoft YaHei",sans-serif';
+  ctx.textAlign = 'center';
+  const step = calcTickStep();
+  for (let t = 0; t <= TOTAL_DURATION + step; t += step) {
+    const x = t * pxPerSec;
+    if (x < -20 || x > rulerW + 20) continue;
+    const isMajor = (Math.round(t * 1000) % Math.round(step * 1000 * 5) < 1) || step >= 1;
+    const h = isMajor ? 18 : 10;
+    ctx.beginPath();
+    ctx.moveTo(x, 36);
+    ctx.lineTo(x, 36 - h);
+    ctx.stroke();
+    if (isMajor) { ctx.fillText(fmtTime(t), x, 14); }
+  }
+}
+
+function calcTickStep() {
+  const viewSec = timelineArea.clientWidth / pxPerSec;
+  if (viewSec <= 2)  return 0.1;
+  if (viewSec <= 5)  return 0.25;
+  if (viewSec <= 10) return 0.5;
+  if (viewSec <= 20) return 1;
+  if (viewSec <= 60) return 2;
+  return 5;
+}
+
+function updatePlayhead() {
+  playheadEl.style.left = (currentTime * pxPerSec - timelineArea.scrollLeft) + 'px';
+}
+
+// ======================== 全局重绘 ========================
+function redraw() {
+  const totalW = TOTAL_DURATION * pxPerSec;
+  timelineInner.style.width  = totalW + 'px';
+  timelineInner.style.height = (36 + TRACKS.length * 56) + 'px';
+  renderClips();
+  renderRuler();
+  updatePlayhead();
+}
+
+// ======================== 点击设置播放头 ========================
+clickCatcher.addEventListener('click', function (e) {
+  const rect = clickCatcher.getBoundingClientRect();
+  const x = e.clientX - rect.left + timelineArea.scrollLeft;
+  let t = x / pxPerSec;
+  if (snapEnabled) {
+    const snapStep = calcTickStep() / 2;
+    t = Math.round(t / snapStep) * snapStep;
+  }
+  currentTime = Math.max(0, Math.min(TOTAL_DURATION, t));
+  updatePlayhead();
+  updateTimeDisplay();
+});
+
+// ======================== 缩放 ========================
+zoomSlider.addEventListener('input', function () {
+  pxPerSec = parseInt(this.value);
+  zoomLabel.textContent = pxPerSec + ' px/s';
+  redraw();
+});
+
+// ======================== 时间格式化 ========================
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = (sec % 60).toFixed(1);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(4,'0')}`;
+}
+function updateTimeDisplay() { timeDisplay.textContent = fmtTime(currentTime); }
+
+// ======================== 适配窗口 ========================
+document.getElementById('fitBtn').addEventListener('click', function () {
+  pxPerSec = Math.round((timelineArea.clientWidth - 40) / TOTAL_DURATION);
+  pxPerSec = Math.max(20, Math.min(400, pxPerSec));
+  zoomSlider.value = pxPerSec;
+  zoomLabel.textContent = pxPerSec + ' px/s';
+  redraw();
+});
+
+// ======================== 吸附切换 ========================
+document.getElementById('snapBtn').addEventListener('click', function () {
+  snapEnabled = !snapEnabled;
+  this.textContent = '吸附: ' + (snapEnabled ? '开' : '关');
+});
+
+// ======================== 滚轮 (Ctrl+缩放) ========================
+timelineArea.addEventListener('wheel', function (e) {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  pxPerSec = Math.round(Math.max(20, Math.min(400, pxPerSec - e.deltaY * 0.5)));
+  zoomSlider.value = pxPerSec;
+  zoomLabel.textContent = pxPerSec + ' px/s';
+  redraw();
+}, { passive: false });
+
+// ======================== 滚动同步 ========================
+timelineArea.addEventListener('scroll', updatePlayhead);
+
+// ======================== 键盘快捷键 ========================
+document.addEventListener('keydown', function (e) {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') {
+    e.preventDefault();
+    currentTime += 0.1;
+    if (currentTime > TOTAL_DURATION) currentTime = 0;
+    updatePlayhead(); updateTimeDisplay();
+    const viewW = timelineArea.clientWidth;
+    if (currentTime * pxPerSec > timelineArea.scrollLeft + viewW - 40) {
+      timelineArea.scrollLeft = currentTime * pxPerSec - viewW + 40;
+    }
+    if (currentTime * pxPerSec < timelineArea.scrollLeft) {
+      timelineArea.scrollLeft = currentTime * pxPerSec;
+    }
+  }
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    currentTime = Math.max(0, currentTime - 0.1);
+    updatePlayhead(); updateTimeDisplay();
+    if (currentTime * pxPerSec < timelineArea.scrollLeft + 10) {
+      timelineArea.scrollLeft = Math.max(0, currentTime * pxPerSec - 20);
+    }
+  }
+  if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    currentTime = Math.min(TOTAL_DURATION, currentTime + 0.1);
+    updatePlayhead(); updateTimeDisplay();
+    const viewW = timelineArea.clientWidth;
+    if (currentTime * pxPerSec > timelineArea.scrollLeft + viewW - 10) {
+      timelineArea.scrollLeft = currentTime * pxPerSec - viewW + 20;
+    }
+  }
+  if (e.key === 'Home') { currentTime = 0; timelineArea.scrollLeft = 0; updatePlayhead(); updateTimeDisplay(); }
+  if (e.key === 'End')  { currentTime = TOTAL_DURATION; timelineArea.scrollLeft = TOTAL_DURATION * pxPerSec; updatePlayhead(); updateTimeDisplay(); }
+});
+
+window.addEventListener('resize', redraw);
+
+updateTimeDisplay();
+redraw();
+
+})();
+</script>
+</body>
+</html>
