@@ -161,7 +161,7 @@ html, body {
   left: 20px; top: 50%; transform: translateY(-50%);
   z-index: 1;
   color: #fff;
-  font-size: 14px;
+  font-size: 21px; font-weight: 700;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   letter-spacing: 0.08em;
   white-space: nowrap;
