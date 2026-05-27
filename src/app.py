@@ -19,6 +19,9 @@ VTT_DIR = os.path.join(BASE, 'DataBase')
 # 当前指定乐谱（后端变量控制）
 CURRENT_SHEET = None
 
+# 当前指定 VTT 记号文件（后端变量控制）
+CURRENT_VTT = None
+
 def find_sheet(filename):
     if not filename:
         return None
@@ -74,6 +77,20 @@ def list_vtt():
 @app.route('/api/vtt/<path:filename>')
 def serve_vtt(filename):
     return send_from_directory(VTT_DIR, filename)
+
+# 获取当前指定 VTT 记号文件
+@app.route('/api/current-vtt')
+def current_vtt():
+    global CURRENT_VTT
+    if CURRENT_VTT:
+        path = os.path.join(VTT_DIR, CURRENT_VTT)
+        if os.path.isfile(path):
+            return send_from_directory(VTT_DIR, CURRENT_VTT)
+    files = sorted([f for f in os.listdir(VTT_DIR) if f.lower().endswith('.vtt')])
+    if files:
+        CURRENT_VTT = files[0]
+        return send_from_directory(VTT_DIR, files[0])
+    return jsonify({'error': 'no VTT file found'}), 404
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

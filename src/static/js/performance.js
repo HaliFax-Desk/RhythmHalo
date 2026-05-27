@@ -357,6 +357,21 @@ const PerformanceApp = {
       cancelAnimationFrame(vttRaf);
     }
 
+    /* ---- VTT 加载方式 ---- */
+
+    // 方式一：后端接口加载（当前使用）
+    // 从 /api/current-vtt 获取后端 CURRENT_VTT 变量指定的文件
+    function loadVttFromApi() {
+      fetch('/api/current-vtt')
+        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
+        .then(function (text) {
+          loadVttText(text);
+          vttFileName.value = 'CURRENT_VTT';
+        })
+        .catch(function (e) { console.error('VTT API 加载失败:', e); });
+    }
+
+    // 方式二：原始文本加载（共享核心，被 onVttSelected / onVttFilePicked / loadVttFromApi 复用）
     function loadVttText(text) {
       var result = window.VttEngine.parse(text);
       vttEvents = result.events;
@@ -367,6 +382,7 @@ const PerformanceApp = {
       _vttApplyEffects(window.VttEngine.getActiveEffects(vttEvents, 0));
     }
 
+    // 方式三：下拉框选择（已注释 UI，保留函数）
     function onVttSelected() {
       if (!vttSelected.value) { _clearVtt(); return; }
       fetch('/api/vtt/' + vttSelected.value)
@@ -375,6 +391,7 @@ const PerformanceApp = {
         .catch(function (e) { console.error('VTT 加载失败:', e); });
     }
 
+    // 方式四：本地文件上传（已注释 UI，保留函数）
     function onVttFilePicked(e) {
       var file = e.target.files[0];
       if (!file) return;
@@ -442,6 +459,7 @@ const PerformanceApp = {
       await nextTick();
       if (window.initTimeline) window.initTimeline();
       fetch('/api/vtt-files').then(function (r) { return r.json(); }).then(function (files) { vttFileList.value = files; }).catch(function () {});
+      loadVttFromApi();
       try {
         var sheetRes = await fetch('/api/current-sheet');
         var sheetData = await sheetRes.json();
