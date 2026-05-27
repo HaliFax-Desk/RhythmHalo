@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASS 乐谱记号解析器 · RhythmHalo</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+#app { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .el-input { width: 280px; }
+.time-slider { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.time-slider .el-slider { flex: 1; }
+.time-display { font-size: 22px; font-weight: 700; font-family: 'Cascadia Code','Consolas',monospace; color: #303133; min-width: 130px; text-align: right; }
+.time-controls { display: flex; gap: 8px; }
+
+.active-panel { margin-bottom: 16px; }
+.event-card { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+.event-tag { font-size: 13px; }
+
+.stat-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.stat-card { flex: 1; min-width: 160px; padding: 14px 18px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.stat-card .num { font-size: 28px; font-weight: 700; color: #409eff; }
+.stat-card .label { font-size: 13px; color: #909399; margin-top: 2px; }
+
+.el-tabs__content { padding-top: 12px; }
+.el-table .cell { word-break: break-word; }
+
+.cue-toast { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); z-index: 9999; pointer-events: none; animation: cueSlideIn .5s ease; }
+@keyframes cueSlideIn { from { opacity: 0; transform: translateX(-50%) translateY(-30px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.info-bar { font-size: 13px; color: #909399; margin-bottom: 12px; }
+
+.drop-zone { border: 2px dashed #d9d9d9; border-radius: 8px; padding: 40px; text-align: center; color: #909399; cursor: pointer; transition: border-color .3s, background .3s; margin-bottom: 16px; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: #409eff; background: #ecf5ff; }
+.drop-zone .el-icon { font-size: 40px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- 顶部工具栏 -->
+  <div class="toolbar">
+    <el-input v-model="fileUrl" placeholder="输入 .ass 文件路径或 URL" clearable @keyup.enter="loadFromUrl">
+      <template #prepend>文件路径</template>
+    </el-input>
+    <el-button type="primary" @click="loadFromUrl">
+      <el-icon style="margin-right:4px"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg></el-icon>
+      加载
+    </el-button>
+    <el-button @click="loadSample">加载示例 (CHUNWU2MIX)</el-button>
+    <el-upload accept=".ass" :auto-upload="false" :show-file-list="false" :on-change="handleFileDrop">
+      <el-button icon="FolderOpened">选择本地 .ass 文件</el-button>
+    </el-upload>
+  </div>
+
+  <div class="drop-zone"
+    :class="{ 'drag-over': dragOver }"
+    @dragover.prevent="dragOver = true"
+    @dragleave.prevent="dragOver = false"
+    @drop.prevent="onDrop">
+    <el-icon><svg viewBox="0 0 24 24" width="40" height="40" fill="#909399"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg></el-icon>
+    <p>拖拽 .ass 文件到此处，或点击上方按钮选择文件</p>
+  </div>
+
+  <!-- 文件信息 -->
+  <div class="info-bar" v-if="fileInfo.title">
+    <el-tag type="info" size="small">{{ fileInfo.title }}</el-tag>
+    <span style="margin-left:8px">{{ fileInfo.totalLines }} 条事件</span>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div class="stat-row" v-if="stats.total > 0">
+    <div class="stat-card">
+      <div class="num">{{ stats.total }}</div>
+      <div class="label">事件总数</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.overlay }}</div>
+      <div class="label">覆盖型状态</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.interval }}</div>
+      <div class="label">有限区间</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.instant }}</div>
+      <div class="label">瞬时事件</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.totalDuration }}</div>
+      <div class="label">总时长 (秒)</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.cueCount }}</div>
+      <div class="label">提示点 (cue)</div>
+    </div>
+  </div>
+
+  <!-- 时间轴滑块 -->
+  <div class="time-slider" v-if="stats.total > 0">
+    <span style="font-size:12px;color:#909399;white-space:nowrap">00:00.00</span>
+    <el-slider v-model="currentTime" :min="0" :max="stats.totalDuration" :step="0.1" :format-tooltip="fmtSliderTooltip" show-tooltip @input="onTimeChange" style="flex:1"></el-slider>
+    <span style="font-size:12px;color:#909399;white-space:nowrap">{{ fmtSeconds(stats.totalDuration) }}</span>
+    <div class="time-display">{{ fmtSeconds(currentTime) }}</div>
+    <div class="time-controls">
+      <el-button-group>
+        <el-button size="small" @click="stepTime(-0.5)" icon="DArrowLeft">后退</el-button>
+        <el-button size="small" :type="playing ? 'danger' : 'primary'" @click="togglePlay" :icon="playing ? 'VideoPause' : 'VideoPlay'">{{ playing ? '暂停' : '播放' }}</el-button>
+        <el-button size="small" @click="stepTime(0.5)" icon="DArrowRight">前进</el-button>
+      </el-button-group>
+    </div>
+  </div>
+
+  <!-- 当前时刻活动事件 -->
+  <div class="active-panel" v-if="activeEvents.length > 0">
+    <el-alert :title="'当前 ' + fmtSeconds(currentTime) + ' 的活动记号 (' + activeEvents.length + ' 个)'" type="success" :closable="false" show-icon>
+      <template #default>
+        <div class="event-card">
+          <el-tag v-for="evt in activeEvents" :key="evt.id" class="event-tag"
+            :type="evt.category === 'overlay' ? '' : evt.category === 'instant' ? 'danger' : 'success'"
+            effect="dark" size="small">
+            {{ evt.display }}
+          </el-tag>
+        </div>
+      </template>
+    </el-alert>
+  </div>
+
+  <div class="active-panel" v-else-if="stats.total > 0">
+    <el-alert title="当前时刻无活动记号" type="info" :closable="false" show-icon />
+  </div>
+
+  <!-- cue 提示浮层 -->
+  <div class="cue-toast" v-if="cueToast.visible">
+    <el-alert :title="'⏳ ' + cueToast.text" type="warning" :closable="false" show-icon>
+      <template #default>
+        <span style="font-weight:700;font-size:18px">{{ cueToast.countdown }}</span>
+        <span style="margin-left:4px">秒后到达 ({{ fmtSeconds(cueToast.targetTime) }})</span>
+      </template>
+    </el-alert>
+  </div>
+
+  <!-- 事件表格 三分类 Tab -->
+  <el-tabs v-model="activeTab" type="border-card" v-if="stats.total > 0">
+    <el-tab-pane label="全部事件 ({{ allEvents.length }})" name="all">
+      <el-table :data="allEvents" stripe size="small" max-height="500" row-key="id">
+        <el-table-column prop="startStr" label="开始" width="100" sortable></el-table-column>
+        <el-table-column prop="endStr" label="结束" width="100" sortable></el-table-column>
+        <el-table-column prop="duration" label="时长(s)" width="80" sortable></el-table-column>
+        <el-table-column label="类别" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.category === 'overlay' ? '' : row.category === 'instant' ? 'danger' : 'success'">
+              {{ categoryLabel(row.category) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="typeName" label="类型" width="130" sortable></el-table-column>
+        <el-table-column label="参数" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+            <span v-if="!Object.keys(row.params).length" style="color:#c0c4cc">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" min-width="200" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="覆盖型 ({{ overlayEvents.length }})" name="overlay">
+      <el-table :data="overlayEvents" stripe size="small" max-height="500" row-key="id">
+        <el-table-column prop="startStr" label="开始" width="100" sortable></el-table-column>
+        <el-table-column prop="endStr" label="截断后结束" width="120" sortable></el-table-column>
+        <el-table-column prop="typeName" label="类型" width="150" sortable></el-table-column>
+        <el-table-column label="参数" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" min-width="200" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="有限区间 ({{ intervalEvents.length }})" name="interval">
+      <el-table :data="intervalEvents" stripe size="small" max-height="500" row-key="id">
+        <el-table-column prop="startStr" label="开始" width="100" sortable></el-table-column>
+        <el-table-column prop="endStr" label="结束" width="100" sortable></el-table-column>
+        <el-table-column prop="duration" label="时长(s)" width="80" sortable></el-table-column>
+        <el-table-column prop="typeName" label="类型" width="150" sortable></el-table-column>
+        <el-table-column label="参数" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" min-width="200" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="瞬时事件 ({{ instantEvents.length }})" name="instant">
+      <el-table :data="instantEvents" stripe size="small" max-height="500" row-key="id">
+        <el-table-column prop="startStr" label="时刻" width="100" sortable></el-table-column>
+        <el-table-column prop="typeName" label="类型" width="150" sortable></el-table-column>
+        <el-table-column label="参数" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+            <span v-if="!Object.keys(row.params).length" style="color:#c0c4cc">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" min-width="180" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+  </el-tabs>
+
+  <!-- 空状态 -->
+  <el-empty v-if="!fileInfo.title" description="加载一个 .ass 文件开始解析" :image-size="120" />
+
+</div>
+
+<script>
+/* ============================================================
+ * ASS 乐谱记号解析器 — 纯 JS 引擎
+ * 严格遵循 Doc/DataStruct.md 规范实现
+ * ============================================================ */
+const { createApp, ref, computed, watch, onBeforeUnmount } = Vue;
+
+const OVERLAY_TYPES = new Set([
+  'tempo', 'dynamic', 'key_signature', 'time_signature',
+  'expression', 'technique', 'ottava', 'chord'
+]);
+const INSTANT_TYPES = new Set([
+  'staccato', 'accent', 'tenuto', 'marcato', 'fermata', 'breath',
+  'arpeggio', 'mordent', 'turn', 'grace_note',
+  'repeat_start', 'repeat_end', 'segno', 'coda', 'fine',
+  'dc_al_fine', 'ds_al_fine', 'fingering', 'cue'
+]);
+const FINITE_TYPES = new Set([
+  'sustain', 'sostenuto', 'una_corda', 'slur', 'tie',
+  'crescendo', 'diminuendo', 'glissando', 'trill', 'tremolo',
+  'legato'
+]);
+
+const MAX_END_SEC = 9 * 3600 + 59 * 60 + 59.99;
+
+function parseTime(hms) {
+  var m = (hms || '').match(/^(\d+):(\d{2}):(\d{2})\.(\d{2})$/);
+  if (!m) return 0;
+  return +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] * 0.01;
+}
+
+function fmtSeconds(sec) {
+  var s = sec || 0;
+  var m = Math.floor(s / 60);
+  var secPart = (s % 60).toFixed(2);
+  return ('0' + m).slice(-2) + ':' + secPart.padStart(5, '0');
+}
+
+function fmtCs(sec) {
+  var s = sec || 0;
+  var cs = Math.round(s * 100) % 100;
+  var m = Math.floor(s / 60);
+  var secPart = Math.floor(s % 60);
+  return m + ':' + ('0' + secPart).slice(-2) + '.' + ('0' + cs).slice(-2);
+}
+
+function parseText(raw) {
+  if (!raw || !raw.trim()) return { typeName: 'unknown', params: {} };
+  var text = raw.trim();
+  var colonIdx = text.indexOf(':');
+  var typeName, paramStr;
+  if (colonIdx === -1) {
+    typeName = text;
+    paramStr = '';
+  } else {
+    typeName = text.substring(0, colonIdx);
+    paramStr = text.substring(colonIdx + 1);
+  }
+  var params = {};
+  if (paramStr) {
+    paramStr.split(',').forEach(function (pair) {
+      var eqIdx = pair.indexOf('=');
+      if (eqIdx > -1) {
+        params[pair.substring(0, eqIdx).trim()] = pair.substring(eqIdx + 1).trim();
+      }
+    });
+  }
+  return { typeName: typeName.trim(), params: params };
+}
+
+function classifyEvent(t, e, typeName) {
+  var baseType = typeName.split(':')[0];
+  if (Math.abs(e - t) < 0.005) return 'instant';
+  if (e >= MAX_END_SEC - 0.01 && OVERLAY_TYPES.has(baseType)) return 'overlay';
+  if (FINITE_TYPES.has(baseType) || OVERLAY_TYPES.has(baseType) || INSTANT_TYPES.has(baseType)) return 'interval';
+  return 'interval';
+}
+
+function parseAss(raw) {
+  var lines = raw.split(/\r?\n/);
+  var events = [];
+  var info = { title: '' };
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+
+    if (line.indexOf('Title:') !== -1 && info.title === '') {
+      info.title = line.substring(line.indexOf('Title:') + 6).trim();
+    }
+
+    var semiIdx = line.indexOf(';');
+    if (semiIdx !== -1) line = line.substring(0, semiIdx);
+
+    if (line.indexOf('Dialogue:') !== 0) continue;
+
+    var parts = line.substring('Dialogue:'.length).split(',');
+    if (parts.length < 10) continue;
+
+    var startRaw = (parts[0] || '').trim();
+    var endRaw   = (parts[1] || '').trim();
+    var textRaw  = parts.slice(9).join(',').trim();
+
+    if (!textRaw) continue;
+
+    var t = parseTime(startRaw);
+    var e = parseTime(endRaw);
+    var parsed = parseText(textRaw);
+    var category = classifyEvent(t, e, parsed.typeName);
+
+    events.push({
+      id: 'evt' + events.length,
+      t: t,
+      e: e,
+      startStr: startRaw,
+      endStr: endRaw,
+      duration: +(e - t).toFixed(3),
+      category: category,
+      typeName: parsed.typeName,
+      params: parsed.params,
+      raw: textRaw,
+      truncated: false
+    });
+  }
+
+  return { info: info, events: events };
+}
+
+function applyOverlayTruncation(events) {
+  var overlayMap = {};
+  events.forEach(function (evt) {
+    if (evt.category !== 'overlay') return;
+    if (!overlayMap[evt.typeName]) overlayMap[evt.typeName] = [];
+    overlayMap[evt.typeName].push(evt);
+  });
+
+  Object.keys(overlayMap).forEach(function (typeName) {
+    var group = overlayMap[typeName];
+    group.sort(function (a, b) { return a.t - b.t; });
+    for (var i = 0; i < group.length - 1; i++) {
+      group[i].e = group[i + 1].t;
+      group[i].truncated = true;
+      group[i].endStr = fmtCs(group[i].e) + ' (截)';
+      group[i].duration = +(group[i].e - group[i].t).toFixed(3);
+    }
+  });
+}
+
+function getActiveEvents(events, tNow) {
+  return events.filter(function (evt) {
+    if (evt.category === 'instant') {
+      return Math.abs(evt.t - tNow) < 0.05;
+    }
+    return tNow >= evt.t && tNow < evt.e;
+  });
+}
+
+function getActiveCues(events, tNow) {
+  return events.filter(function (evt) {
+    if (evt.typeName !== 'cue' && evt.typeName.indexOf('cue:') !== 0) return false;
+    var advance = parseFloat(evt.params.advance) || 3;
+    return tNow >= evt.t - advance && tNow < evt.t;
+  }).map(function (evt) {
+    var advance = parseFloat(evt.params.advance) || 3;
+    return {
+      text: evt.params.text || '提示',
+      countdown: +(evt.t - tNow).toFixed(1),
+      targetTime: evt.t
+    };
+  });
+}
+
+/* ============================================================
+ * Vue 应用
+ * ============================================================ */
+const App = {
+  setup() {
+    var fileUrl = ref('');
+    var fileInfo = ref({ title: '', totalLines: 0 });
+    var allEvents = ref([]);
+    var activeTab = ref('all');
+    var currentTime = ref(0);
+    var playing = ref(false);
+    var dragOver = ref(false);
+    var cueToast = ref({ visible: false, text: '', countdown: 0, targetTime: 0 });
+    var playRaf = null;
+    var playLast = 0;
+
+    var overlayEvents = computed(function () {
+      return allEvents.value.filter(function (e) { return e.category === 'overlay'; });
+    });
+    var intervalEvents = computed(function () {
+      return allEvents.value.filter(function (e) { return e.category === 'interval'; });
+    });
+    var instantEvents = computed(function () {
+      return allEvents.value.filter(function (e) { return e.category === 'instant'; });
+    });
+
+    var stats = computed(function () {
+      var total = allEvents.value.length;
+      var overlay = overlayEvents.value.length;
+      var interval = intervalEvents.value.length;
+      var instant = instantEvents.value.length;
+      var cueCount = allEvents.value.filter(function (e) {
+        return e.typeName === 'cue' || e.typeName.indexOf('cue:') === 0;
+      }).length;
+      var maxEnd = 0;
+      allEvents.value.forEach(function (e) { if (e.e > maxEnd) maxEnd = e.e; });
+      return {
+        total: total,
+        overlay: overlay,
+        interval: interval,
+        instant: instant,
+        cueCount: cueCount,
+        totalDuration: +maxEnd.toFixed(1)
+      };
+    });
+
+    var activeEvents = computed(function () {
+      return getActiveEvents(allEvents.value, currentTime.value);
+    });
+
+    var cueCheckTimer = null;
+
+    function checkCue() {
+      var cues = getActiveCues(allEvents.value, currentTime.value);
+      if (cues.length) {
+        cueToast.value = { visible: true, text: cues[0].text, countdown: cues[0].countdown, targetTime: cues[0].targetTime };
+      } else {
+        cueToast.value.visible = false;
+      }
+    }
+
+    function onTimeChange() {
+      checkCue();
+    }
+
+    function loadRaw(raw) {
+      var result = parseAss(raw);
+      applyOverlayTruncation(result.events);
+      fileInfo.value = { title: result.info.title, totalLines: result.events.length };
+      allEvents.value = result.events;
+      currentTime.value = 0;
+      activeTab.value = 'all';
+      cueToast.value.visible = false;
+      if (result.events.length) {
+        ElMessage.success('解析完成：' + result.events.length + ' 条事件');
+      } else {
+        ElMessage.warning('未找到有效事件行');
+      }
+    }
+
+    function loadFromUrl() {
+      if (!fileUrl.value.trim()) return;
+      fetch(fileUrl.value)
+        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
+        .then(function (text) { loadRaw(text); })
+        .catch(function (err) { ElMessage.error('加载失败: ' + err.message); });
+    }
+
+    function loadSample() {
+      fileUrl.value = 'DataBase/CHUNWU2MIX.ass';
+      loadFromUrl();
+    }
+
+    function handleFileDrop(uploadFile) {
+      var file = uploadFile.raw;
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { loadRaw(reader.result); };
+      reader.readAsText(file);
+    }
+
+    function onDrop(e) {
+      dragOver.value = false;
+      var file = e.dataTransfer.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { loadRaw(reader.result); };
+      reader.readAsText(file);
+    }
+
+    function togglePlay() {
+      if (playing.value) {
+        pause();
+      } else {
+        play();
+      }
+    }
+
+    function play() {
+      if (playing.value) return;
+      if (currentTime.value >= stats.value.totalDuration) currentTime.value = 0;
+      playing.value = true;
+      playLast = performance.now();
+      function tick() {
+        if (!playing.value) return;
+        var now = performance.now();
+        currentTime.value = Math.min(stats.value.totalDuration, currentTime.value + (now - playLast) / 1000);
+        playLast = now;
+        checkCue();
+        playRaf = requestAnimationFrame(tick);
+      }
+      playRaf = requestAnimationFrame(tick);
+    }
+
+    function pause() {
+      playing.value = false;
+      cancelAnimationFrame(playRaf);
+    }
+
+    function stepTime(delta) {
+      currentTime.value = Math.max(0, Math.min(stats.value.totalDuration, currentTime.value + delta));
+      checkCue();
+    }
+
+    function fmtSliderTooltip(val) { return fmtSeconds(val); }
+    function categoryLabel(c) {
+      if (c === 'overlay') return '覆盖型';
+      if (c === 'interval') return '区间型';
+      if (c === 'instant') return '瞬时';
+      return c;
+    }
+
+    onBeforeUnmount(function () {
+      pause();
+      if (cueCheckTimer) clearInterval(cueCheckTimer);
+    });
+
+    return {
+      fileUrl, fileInfo, allEvents, activeTab, currentTime, playing, dragOver, cueToast,
+      overlayEvents, intervalEvents, instantEvents, stats, activeEvents,
+      loadFromUrl, loadSample, handleFileDrop, onDrop,
+      togglePlay, play, pause, stepTime, onTimeChange,
+      fmtSeconds, fmtSliderTooltip, categoryLabel,
+    };
+  }
+};
+
+var app = createApp(App);
+app.use(ElementPlus);
+app.mount('#app');
+</script>
+</body>
+</html>

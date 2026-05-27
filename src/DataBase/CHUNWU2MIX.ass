@@ -1,0 +1,68 @@
+[Script Info]
+Title: 春物2钢琴混合版 - 第1页
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,16,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+
+; ========== 覆盖型状态（全曲持续，直到被同类型覆盖） ==========
+Dialogue: 0,0:00:00.00,9:59:59.99,Default,,0,0,0,,key_signature:key=D major
+Dialogue: 0,0:00:00.00,9:59:59.99,Default,,0,0,0,,time_signature:num=4,den=4
+Dialogue: 0,0:00:00.00,9:59:59.99,Default,,0,0,0,,tempo:bpm=88
+Dialogue: 0,0:00:00.00,0:00:27.30,Default,,0,0,0,,dynamic:level=mp      ; 第1页开头标记 mp，持续约10小节
+
+; ========== 有限持续区间事件（踏板、连音线、渐强） ==========
+; 渐强 (cresc.) —— 第1页中段出现，从 mp 到 mf 或 f
+Dialogue: 0,0:00:08.20,0:00:21.80,Default,,0,0,0,,crescendo:from=mp,to=mf   ; 估算范围
+
+; 右手踏板 (m.d.) —— 乐谱中 m.d. 标记
+Dialogue: 0,0:00:02.73,0:00:05.46,Default,,0,0,0,,sustain:hand=RH
+Dialogue: 0,0:00:08.20,0:00:10.93,Default,,0,0,0,,sustain:hand=RH
+Dialogue: 0,0:00:13.66,0:00:16.39,Default,,0,0,0,,sustain:hand=RH
+
+; 左手踏板 (m.s.) —— 乐谱中 m.s. 标记
+Dialogue: 0,0:00:19.11,0:00:21.84,Default,,0,0,0,,sustain:hand=LH
+
+; 连音线 (slur) —— 根据乐谱中的弧线位置
+Dialogue: 0,0:00:02.73,0:00:05.46,Default,,0,0,0,,slur:voice=1
+Dialogue: 0,0:00:05.46,0:00:08.20,Default,,0,0,0,,slur:voice=1
+Dialogue: 0,0:00:10.93,0:00:13.66,Default,,0,0,0,,slur:voice=1
+Dialogue: 0,0:00:13.66,0:00:16.39,Default,,0,0,0,,slur:voice=1
+Dialogue: 0,0:00:16.39,0:00:19.11,Default,,0,0,0,,slur:voice=1
+Dialogue: 0,0:00:19.11,0:00:21.84,Default,,0,0,0,,slur:voice=1
+
+; ========== 瞬时事件（重音、断奏等） ==========
+; 重音 (>) —— 乐谱中多个重音记号
+Dialogue: 0,0:00:00.68,0:00:00.68,Default,,0,0,0,,accent
+Dialogue: 0,0:00:02.05,0:00:02.05,Default,,0,0,0,,accent
+Dialogue: 0,0:00:03.41,0:00:03.41,Default,,0,0,0,,accent
+Dialogue: 0,0:00:04.78,0:00:04.78,Default,,0,0,0,,accent
+Dialogue: 0,0:00:06.14,0:00:06.14,Default,,0,0,0,,accent
+Dialogue: 0,0:00:09.55,0:00:09.55,Default,,0,0,0,,accent
+Dialogue: 0,0:00:12.29,0:00:12.29,Default,,0,0,0,,accent
+Dialogue: 0,0:00:15.02,0:00:15.02,Default,,0,0,0,,accent
+Dialogue: 0,0:00:17.75,0:00:17.75,Default,,0,0,0,,accent
+Dialogue: 0,0:00:20.48,0:00:20.48,Default,,0,0,0,,accent
+
+; 断奏 (staccato ·) —— 乐谱中音符上方的点
+Dialogue: 0,0:00:01.36,0:00:01.36,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:02.73,0:00:02.73,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:04.09,0:00:04.09,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:05.46,0:00:05.46,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:06.82,0:00:06.82,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:08.20,0:00:08.20,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:10.93,0:00:10.93,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:13.66,0:00:13.66,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:16.39,0:00:16.39,Default,,0,0,0,,staccato
+Dialogue: 0,0:00:19.11,0:00:19.11,Default,,0,0,0,,staccato
+
+; 延长记号 (fermata) —— 如果第一页有，通常在小节末，假设无则省略
+
+; ========== 自定义提示（用于前端倒计时） ==========
+Dialogue: 0,0:00:24.57,0:00:24.57,Default,,0,0,0,,cue:text=第1页结束，准备翻页,advance=2

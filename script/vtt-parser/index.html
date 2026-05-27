@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VTT 乐谱记号解析器 · RhythmHalo</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+#app { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .el-input { width: 280px; }
+
+.drop-zone { border: 2px dashed #d9d9d9; border-radius: 8px; padding: 30px; text-align: center; color: #909399; cursor: pointer; transition: border-color .3s, background .3s; margin-bottom: 16px; }
+.drop-zone:hover, .drop-zone.drag-over { border-color: #409eff; background: #ecf5ff; }
+
+.info-bar { font-size: 13px; color: #909399; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* ====== 双 DIV 信息面板 ====== */
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.panel { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); padding: 16px 20px; min-height: 160px; }
+.panel h3 { font-size: 14px; color: #909399; margin-bottom: 12px; font-weight: 400; border-bottom: 1px solid #ebeef5; padding-bottom: 8px; }
+.panel h3 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.panel h3 .dot.live { background: #67c23a; animation: pulse-dot 1.2s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+.state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+.state-item { display: flex; align-items: baseline; gap: 8px; }
+.state-label { font-size: 12px; color: #909399; min-width: 60px; }
+.state-value { font-size: 22px; font-weight: 700; color: #303133; font-family: 'Cascadia Code','Consolas',monospace; transition: color .3s; }
+.state-value.changed { color: #409eff; }
+.state-value.dynamic-pppp, .state-value.dynamic-ppp, .state-value.dynamic-pp { color: #909399; }
+.state-value.dynamic-p, .state-value.dynamic-mp { color: #67c23a; }
+.state-value.dynamic-mf, .state-value.dynamic-f { color: #e6a23c; }
+.state-value.dynamic-ff, .state-value.dynamic-fff, .state-value.dynamic-ffff { color: #f56c6c; }
+
+.effect-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.effect-list .empty { color: #c0c4cc; font-size: 14px; width: 100%; }
+
+/* ====== 时间轴 ====== */
+.time-slider { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.time-slider .el-slider { flex: 1; }
+.time-display { font-size: 22px; font-weight: 700; font-family: 'Cascadia Code','Consolas',monospace; color: #303133; min-width: 130px; text-align: right; }
+.time-controls { display: flex; gap: 8px; }
+
+/* ====== cue 文本提示条 ====== */
+.cue-bar-wrapper { margin-bottom: 16px; min-height: 36px; }
+.cue-bar { background: #fdf6ec; border: 1px solid #faecd8; border-radius: 6px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; }
+.cue-bar .cue-icon { font-size: 18px; }
+.cue-bar .cue-text { flex: 1; font-size: 14px; color: #303133; }
+.cue-bar .cue-countdown { font-size: 18px; font-weight: 700; color: #e6a23c; font-family: 'Cascadia Code','Consolas',monospace; white-space: nowrap; }
+
+/* ====== 统计卡 ====== */
+.stat-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.stat-card { flex: 1; min-width: 140px; padding: 12px 16px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.stat-card .num { font-size: 26px; font-weight: 700; color: #409eff; }
+.stat-card .label { font-size: 12px; color: #909399; margin-top: 2px; }
+
+.el-tabs__content { padding-top: 12px; }
+.el-table .cell { word-break: break-word; }
+
+.event-tag { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div class="toolbar">
+    <el-input v-model="fileUrl" placeholder="输入 .vtt 文件路径或 URL" clearable @keyup.enter="loadFromUrl">
+      <template #prepend>文件路径</template>
+    </el-input>
+    <el-button type="primary" @click="loadFromUrl">加载</el-button>
+    <el-button @click="loadSample">加载示例 (春物mix.vtt)</el-button>
+    <el-upload accept=".vtt" :auto-upload="false" :show-file-list="false" :on-change="handleFileDrop">
+      <el-button>选择本地文件</el-button>
+    </el-upload>
+  </div>
+
+  <div class="drop-zone" :class="{ 'drag-over': dragOver }"
+    @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false" @drop.prevent="onDrop">
+    <p>拖拽 .vtt 文件到此处，或点击上方按钮选择文件 / 加载示例</p>
+  </div>
+
+  <div class="info-bar" v-if="fileInfo.title">
+    <el-tag type="info" size="small">{{ fileInfo.title }}</el-tag>
+    <span>{{ fileInfo.eventCount }} 条事件 · 总时长 {{ fmtSeconds(stats.totalDuration) }}</span>
+  </div>
+
+  <!-- ====== 双 DIV 信息面板 ====== -->
+  <div class="panels" v-if="stats.total > 0">
+    <div class="panel">
+      <h3><span class="dot live"></span>当前演奏状态</h3>
+      <div class="state-grid">
+        <div class="state-item">
+          <span class="state-label">BPM</span>
+          <span class="state-value">{{ snap.bpm }}</span>
+        </div>
+        <div class="state-item">
+          <span class="state-label">Key</span>
+          <span class="state-value">{{ snap.key }}</span>
+        </div>
+        <div class="state-item">
+          <span class="state-label">Dynamic</span>
+          <span class="state-value" :class="'dynamic-' + snap.dynamic">{{ snap.dynamic }}</span>
+        </div>
+        <div class="state-item">
+          <span class="state-label">技法</span>
+          <span class="state-value">{{ snap.technique || '—' }}</span>
+        </div>
+        <div class="state-item" style="grid-column:1/-1">
+          <span class="state-label">表情</span>
+          <span class="state-value" style="font-size:16px">{{ snap.expression || '—' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>活跃效果 <span style="font-weight:400;font-size:12px;color:#c0c4cc">(区间内)</span></h3>
+      <div class="effect-list">
+        <template v-if="activeEffects.length">
+          <el-tag v-for="ef in activeEffects" :key="ef.id" size="small" effect="dark"
+            :type="ef.effectType === 'crescendo' ? 'warning' : ef.effectType === 'diminuendo' ? '' : 'success'">
+            {{ ef.display }}
+          </el-tag>
+        </template>
+        <span v-else class="empty">当前无活跃效果</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== cue 文本提示条 ====== -->
+  <div class="cue-bar-wrapper" v-if="cueBar.visible">
+    <div class="cue-bar">
+      <span class="cue-icon">⏳</span>
+      <span class="cue-text">{{ cueBar.text }}</span>
+      <span class="cue-countdown">{{ cueBar.countdown.toFixed(1) }}s</span>
+      <span style="font-size:12px;color:#909399">→ {{ fmtSeconds(cueBar.targetTime) }}</span>
+    </div>
+  </div>
+
+  <!-- ====== 时间轴 ====== -->
+  <div class="time-slider" v-if="stats.total > 0">
+    <span style="font-size:12px;color:#909399;white-space:nowrap">00:00.00</span>
+    <el-slider v-model="currentTime" :min="0" :max="stats.totalDuration" :step="0.1"
+      :format-tooltip="fmtSeconds" show-tooltip @input="onTimeChange" style="flex:1"></el-slider>
+    <span style="font-size:12px;color:#909399;white-space:nowrap">{{ fmtSeconds(stats.totalDuration) }}</span>
+    <div class="time-display">{{ fmtSeconds(currentTime) }}</div>
+    <div class="time-controls">
+      <el-button-group>
+        <el-button size="small" @click="stepTime(-0.5)">后退</el-button>
+        <el-button size="small" :type="playing ? 'danger' : 'primary'" @click="togglePlay">
+          {{ playing ? '暂停' : '▶ 播放' }}
+        </el-button>
+        <el-button size="small" @click="stepTime(0.5)">前进</el-button>
+      </el-button-group>
+    </div>
+  </div>
+
+  <!-- ====== 统计卡 ====== -->
+  <div class="stat-row" v-if="stats.total > 0">
+    <div class="stat-card"><div class="num">{{ stats.total }}</div><div class="label">事件总数</div></div>
+    <div class="stat-card"><div class="num">{{ stats.stateCount }}</div><div class="label">状态更新</div></div>
+    <div class="stat-card"><div class="num">{{ stats.effectCount }}</div><div class="label">持续效果</div></div>
+    <div class="stat-card"><div class="num">{{ stats.cueCount }}</div><div class="label">提示点</div></div>
+    <div class="stat-card"><div class="num">{{ stats.totalDuration }}</div><div class="label">总时长 (s)</div></div>
+  </div>
+
+  <!-- ====== 事件表格 ====== -->
+  <el-tabs v-model="activeTab" type="border-card" v-if="stats.total > 0">
+    <el-tab-pane label="全部 ({{ allEvents.length }})" name="all">
+      <el-table :data="allEvents" stripe size="small" max-height="450" row-key="id">
+        <el-table-column prop="startStr" label="开始" width="110" sortable></el-table-column>
+        <el-table-column prop="endStr" label="结束" width="110" sortable></el-table-column>
+        <el-table-column prop="duration" label="时长(s)" width="75" sortable></el-table-column>
+        <el-table-column label="类别" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row._cat === 'state' ? '' : row._cat === 'effect' ? 'success' : row._cat === 'cue' ? 'warning' : 'danger'">
+              {{ catLabel(row._cat) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="typeName" label="类型" width="120" sortable></el-table-column>
+        <el-table-column label="参数" min-width="180">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+            <span v-if="!Object.keys(row.params).length" style="color:#c0c4cc">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" min-width="180" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="状态更新 ({{ stateEvents.length }})" name="state">
+      <el-table :data="stateEvents" stripe size="small" max-height="450" row-key="id">
+        <el-table-column prop="startStr" label="时刻" width="110" sortable></el-table-column>
+        <el-table-column prop="typeName" label="类型" width="120" sortable></el-table-column>
+        <el-table-column prop="value" label="值" width="140" sortable>
+          <template #default="{ row }">
+            <span style="font-weight:700">{{ row.value }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="持续效果 ({{ effectEvents.length }})" name="effect">
+      <el-table :data="effectEvents" stripe size="small" max-height="450" row-key="id">
+        <el-table-column prop="startStr" label="开始" width="110" sortable></el-table-column>
+        <el-table-column prop="endStr" label="结束" width="110" sortable></el-table-column>
+        <el-table-column prop="duration" label="时长(s)" width="75" sortable></el-table-column>
+        <el-table-column prop="typeName" label="类型" width="120" sortable></el-table-column>
+        <el-table-column label="参数" min-width="180">
+          <template #default="{ row }">
+            <el-tag v-for="(v,k) in row.params" :key="k" size="small" style="margin:1px 2px">{{ k }}={{ v }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="raw" label="原始文本" show-overflow-tooltip></el-table-column>
+      </el-table>
+    </el-tab-pane>
+
+    <el-tab-pane label="提示点 ({{ cueEvents.length }})" name="cue">
+      <el-table :data="cueEvents" stripe size="small" max-height="450" row-key="id">
+        <el-table-column prop="startStr" label="触发时刻" width="110" sortable></el-table-column>
+        <el-table-column prop="duration" label="持续(s)" width="75" sortable></el-table-column>
+        <el-table-column prop="params.text" label="提示文本" min-width="250" show-overflow-tooltip></el-table-column>
+        <el-table-column label="提前量" width="80">
+          <template #default="{ row }">{{ row.params.advance || 3 }}s</template>
+        </el-table-column>
+      </el-tab-pane>
+  </el-tabs>
+
+  <el-empty v-if="!fileInfo.title" description="加载一个 .vtt 文件开始解析" :image-size="100" />
+
+</div>
+
+<script>
+/* ============================================================
+ * VTT 乐谱记号解析引擎
+ * 严格遵循 WebVTT 乐谱记号规范 v1.1
+ * ============================================================ */
+const { createApp, ref, computed, onBeforeUnmount } = Vue;
+
+/* ---- VTT 时间解析 HH:MM:SS.mmm → 秒 ---- */
+function parseVttTime(hms) {
+  var m = (hms || '').match(/^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/);
+  if (!m) return null;
+  return +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] * 0.001;
+}
+
+function fmtSeconds(sec) {
+  var s = sec || 0;
+  var m = Math.floor(s / 60);
+  var secPart = (s % 60).toFixed(2);
+  return ('0' + m).slice(-2) + ':' + secPart.padStart(5, '0');
+}
+
+/* ---- 力度排序值 ---- */
+var DYNAMIC_ORDER = { pppp:0, ppp:1, pp:2, p:3, mp:4, mf:5, f:6, ff:7, fff:8, ffff:9 };
+var DYNAMIC_LIST  = ['pppp','ppp','pp','p','mp','mf','f','ff','fff','ffff'];
+
+/* ---- 全局状态值校验 ---- */
+function validateBpm(v) {
+  var n = parseFloat(v);
+  return !isNaN(n) && n >= 20 && n <= 400 ? n : null;
+}
+function validateKey(v) {
+  return /^[a-gA-G](#|b)?$/.test(v) ? v : null;
+}
+function validateDynamic(v) {
+  var low = v.toLowerCase();
+  return DYNAMIC_ORDER.hasOwnProperty(low) ? low : null;
+}
+
+/* ---- 数据行解析: bpm=88 | key=D | crescendo:to=f | cue:text=... ---- */
+function parseDataLine(raw) {
+  if (!raw || !raw.trim()) return null;
+  var text = raw.trim();
+  var colonIdx = text.indexOf(':');
+  var eqIdx   = text.indexOf('=');
+
+  var typeName, key1, value1;
+  if (eqIdx > -1 && (colonIdx === -1 || eqIdx < colonIdx)) {
+    typeName = text.substring(0, eqIdx).trim();
+    value1   = text.substring(eqIdx + 1).trim();
+    return { typeName: typeName, params: { value: value1 }, raw: text };
+  } else if (colonIdx > -1) {
+    typeName = text.substring(0, colonIdx).trim();
+    var paramStr = text.substring(colonIdx + 1).trim();
+    var params = {};
+    paramStr.split(',').forEach(function (pair) {
+      var ei = pair.indexOf('=');
+      if (ei > -1) {
+        params[pair.substring(0, ei).trim()] = pair.substring(ei + 1).trim();
+      }
+    });
+    return { typeName: typeName, params: params, raw: text };
+  } else {
+    return { typeName: text, params: {}, raw: text };
+  }
+}
+
+function parseVtt(raw) {
+  var lines = raw.split(/\r?\n/);
+  var events = [];
+  var info = { title: '', notes: [] };
+  var inHeader = true;
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+
+    if (inHeader) {
+      if (line.indexOf('-->') !== -1) inHeader = false;
+      else {
+        var ti = line.indexOf('NOTE');
+        if (ti !== -1) {
+          var note = line.substring(ti + 4).trim();
+          if (note) info.notes.push(note);
+          if (note.indexOf('乐谱：') !== -1 && !info.title) info.title = note.replace('乐谱：','').trim();
+        }
+        continue;
+      }
+    }
+
+    var semiIdx = line.indexOf(';');
+    if (semiIdx !== -1) line = line.substring(0, semiIdx);
+    if (!line.trim()) continue;
+
+    var arrowIdx = line.indexOf('-->');
+    if (arrowIdx === -1) continue;
+
+    var startRaw = line.substring(0, arrowIdx).trim();
+    var endRaw   = line.substring(arrowIdx + 3).trim();
+    var t = parseVttTime(startRaw);
+    var e = parseVttTime(endRaw);
+    if (t === null || e === null) continue;
+    if (t > e) continue;
+
+    var dataLines = [];
+    for (var j = i + 1; j < lines.length && lines[j].trim() && lines[j].indexOf('-->') === -1; j++) {
+      var dl = lines[j];
+      var ds = dl.indexOf(';');
+      if (ds !== -1) dl = dl.substring(0, ds);
+      if (dl.trim()) dataLines.push(dl.trim());
+    }
+
+    dataLines.forEach(function (dl) {
+      var parsed = parseDataLine(dl);
+      if (!parsed) return;
+      var typeName = parsed.typeName;
+      var baseType = typeName.split(':')[0];
+
+      var _cat;
+      if (baseType === 'cue') {
+        _cat = 'cue';
+      } else if (Math.abs(e - t) < 0.001 && (baseType === 'bpm' || baseType === 'key' || baseType === 'dynamic' || baseType === 'technique' || baseType === 'expression')) {
+        _cat = 'state';
+      } else if (Math.abs(e - t) < 0.001) {
+        return;
+      } else if (e > t) {
+        _cat = 'effect';
+      } else {
+        return;
+      }
+
+      var evt = {
+        id: 'evt' + events.length,
+        t: t, e: e,
+        startStr: startRaw, endStr: endRaw,
+        duration: +(e - t).toFixed(4),
+        _cat: _cat,
+        typeName: typeName,
+        baseType: baseType,
+        params: parsed.params,
+        raw: parsed.raw
+      };
+
+      if (_cat === 'state') {
+        if (baseType === 'bpm') { var v = validateBpm(parsed.params.value); if (v === null) return; evt.value = v; }
+        else if (baseType === 'key') { var v = validateKey(parsed.params.value); if (v === null) return; evt.value = v; }
+        else if (baseType === 'dynamic') { var v = validateDynamic(parsed.params.value); if (v === null) return; evt.value = v; }
+        else { evt.value = parsed.params.value || ''; }
+      }
+
+      events.push(evt);
+    });
+  }
+
+  if (!info.title && info.notes.length) info.title = info.notes[0].substring(0, 40);
+  events.sort(function (a, b) { return a.t - b.t; });
+  return { info: info, events: events };
+}
+
+/* ---- 构建时间点状态快照 ---- */
+function buildSnapshots(events) {
+  var states = events.filter(function (e) { return e._cat === 'state'; });
+  states.sort(function (a, b) { return a.t - b.t; });
+
+  var snapshots = [];
+  var current = { bpm: '—', key: '—', dynamic: '—', technique: '', expression: '' };
+  var timePoints = [];
+  var seenTime = {};
+
+  states.forEach(function (s) {
+    if (s.baseType === 'bpm') current.bpm = s.value;
+    else if (s.baseType === 'key') current.key = s.value;
+    else if (s.baseType === 'dynamic') current.dynamic = s.value;
+    else if (s.baseType === 'technique') current.technique = s.value;
+    else if (s.baseType === 'expression') current.expression = s.value;
+
+    var tk = s.t.toFixed(3);
+    if (!seenTime[tk]) {
+      seenTime[tk] = true;
+      timePoints.push({ t: s.t, snap: Object.assign({}, current), bpm: current.bpm, key: current.key, dynamic: current.dynamic, technique: current.technique, expression: current.expression });
+    } else {
+      timePoints[timePoints.length - 1] = { t: s.t, snap: Object.assign({}, current), bpm: current.bpm, key: current.key, dynamic: current.dynamic, technique: current.technique, expression: current.expression };
+    }
+  });
+
+  return timePoints;
+}
+
+function getSnapshot(snapshots, t) {
+  if (!snapshots.length) return { bpm: '—', key: '—', dynamic: '—', technique: '', expression: '' };
+  var s = snapshots[0];
+  for (var i = snapshots.length - 1; i >= 0; i--) {
+    if (snapshots[i].t <= t + 0.001) { s = snapshots[i]; break; }
+  }
+  return s;
+}
+
+function getActiveEffects(events, tNow) {
+  var active = events.filter(function (evt) {
+    if (evt._cat !== 'effect') return false;
+    return tNow >= evt.t && tNow < evt.e;
+  });
+
+  var byType = {};
+  active.forEach(function (evt) {
+    if (!byType[evt.baseType]) byType[evt.baseType] = [];
+    byType[evt.baseType].push(evt);
+  });
+
+  var result = [];
+  Object.keys(byType).forEach(function (typeName) {
+    var group = byType[typeName];
+    group.sort(function (a, b) { return a.t - b.t; });
+    var latest = group[group.length - 1];
+    if (latest) result.push(latest);
+  });
+
+  return result.map(function (evt) {
+    var display = evt.typeName;
+    var keys = Object.keys(evt.params);
+    if (keys.length) {
+      display += ' ' + keys.map(function (k) { return k + '=' + evt.params[k]; }).join(',');
+    }
+    return { id: evt.id, effectType: evt.baseType, display: display, t: evt.t, e: evt.e };
+  });
+}
+
+function getActiveCues(events, tNow, notified) {
+  return events.filter(function (evt) {
+    if (evt._cat !== 'cue') return false;
+    var advance = parseFloat(evt.params.advance) || 3;
+    var windowStart = Math.max(0, evt.t - advance);
+    var windowEnd = evt.t > 0.001 ? evt.t : 0.5;
+    return tNow >= windowStart && tNow < windowEnd;
+  }).map(function (evt) {
+    var advance = parseFloat(evt.params.advance) || 3;
+    return {
+      id: evt.id,
+      text: evt.params.text || evt.params.value || '提示',
+      countdown: Math.max(0, +(evt.t - tNow).toFixed(1)),
+      targetTime: evt.t,
+      advance: advance,
+      notified: !!notified[evt.id]
+    };
+  });
+}
+
+/* ============================================================ */
+const App = {
+  setup() {
+    var fileUrl  = ref('');
+    var fileInfo = ref({ title: '', eventCount: 0 });
+    var allEvents = ref([]);
+    var activeTab = ref('all');
+    var currentTime = ref(0);
+    var playing = ref(false);
+    var dragOver = ref(false);
+    var cueBar = ref({ visible: false, text: '', countdown: 0, targetTime: 0 });
+    var snapshots = [];
+    var notifiedCues = {};
+    var playRaf = null;
+    var playLast = 0;
+
+    var stateEvents  = computed(function () { return allEvents.value.filter(function (e) { return e._cat === 'state'; }); });
+    var effectEvents = computed(function () { return allEvents.value.filter(function (e) { return e._cat === 'effect'; }); });
+    var cueEvents    = computed(function () { return allEvents.value.filter(function (e) { return e._cat === 'cue'; }); });
+
+    var stats = computed(function () {
+      var total = allEvents.value.length;
+      var maxEnd = 0;
+      allEvents.value.forEach(function (e) { if (e.e > maxEnd) maxEnd = e.e; });
+      return {
+        total: total,
+        stateCount: stateEvents.value.length,
+        effectCount: effectEvents.value.length,
+        cueCount: cueEvents.value.length,
+        totalDuration: +maxEnd.toFixed(1)
+      };
+    });
+
+    var snap = computed(function () {
+      return getSnapshot(snapshots, currentTime.value).snap;
+    });
+
+    var activeEffects = computed(function () {
+      return getActiveEffects(allEvents.value, currentTime.value);
+    });
+
+    /* ---- cue 文本条 + ElNotification ---- */
+    function checkCue() {
+      var cues = getActiveCues(allEvents.value, currentTime.value, notifiedCues);
+      if (cues.length) {
+        var c = cues[0];
+        cueBar.value = { visible: true, text: c.text, countdown: c.countdown, targetTime: c.targetTime };
+
+        if (!c.notified) {
+          notifiedCues[c.id] = true;
+          ElementPlus.ElNotification({
+            title: '🎵 演奏提示',
+            message: c.text + ' — 剩余 ' + c.countdown.toFixed(1) + ' 秒 (' + fmtSeconds(c.targetTime) + ')',
+            type: 'warning',
+            duration: Math.max(3000, c.countdown * 1000),
+            offset: 60
+          });
+        }
+      } else {
+        cueBar.value.visible = false;
+      }
+    }
+
+    function onTimeChange() { checkCue(); }
+
+    /* ---- 加载 ---- */
+    function loadRaw(text) {
+      var result = parseVtt(text);
+      fileInfo.value = { title: result.info.title || '未命名', eventCount: result.events.length };
+      allEvents.value = result.events;
+      snapshots = buildSnapshots(result.events);
+      notifiedCues = {};
+      currentTime.value = 0;
+      activeTab.value = 'all';
+      cueBar.value = { visible: false, text: '', countdown: 0, targetTime: 0 };
+      if (result.events.length) {
+        ElementPlus.ElMessage.success('解析完成：' + result.events.length + ' 条事件');
+      } else {
+        ElementPlus.ElMessage.warning('未找到有效事件');
+      }
+    }
+
+    function loadFromUrl() {
+      if (!fileUrl.value.trim()) return;
+      fetch(fileUrl.value)
+        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
+        .then(function (text) { loadRaw(text); })
+        .catch(function (err) { ElementPlus.ElMessage.error('加载失败: ' + err.message); });
+    }
+
+    function loadSample() {
+      fileUrl.value = '春物mix.vtt';
+      loadFromUrl();
+    }
+
+    function handleFileDrop(uploadFile) {
+      var file = uploadFile.raw;
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { loadRaw(reader.result); };
+      reader.readAsText(file);
+    }
+
+    function onDrop(e) {
+      dragOver.value = false;
+      var file = e.dataTransfer.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { loadRaw(reader.result); };
+      reader.readAsText(file);
+    }
+
+    /* ---- 播放 ---- */
+    function togglePlay() { playing.value ? pause() : play(); }
+
+    function play() {
+      if (playing.value) return;
+      if (currentTime.value >= stats.value.totalDuration) currentTime.value = 0;
+      playing.value = true;
+      notifiedCues = {};
+      playLast = performance.now();
+      function tick() {
+        if (!playing.value) return;
+        var now = performance.now();
+        currentTime.value = Math.min(stats.value.totalDuration, currentTime.value + (now - playLast) / 1000);
+        playLast = now;
+        checkCue();
+        if (currentTime.value >= stats.value.totalDuration) { pause(); return; }
+        playRaf = requestAnimationFrame(tick);
+      }
+      playRaf = requestAnimationFrame(tick);
+    }
+
+    function pause() {
+      playing.value = false;
+      cancelAnimationFrame(playRaf);
+    }
+
+    function stepTime(delta) {
+      currentTime.value = Math.max(0, Math.min(stats.value.totalDuration, currentTime.value + delta));
+      checkCue();
+    }
+
+    function catLabel(c) {
+      if (c === 'state') return '状态更新';
+      if (c === 'effect') return '持续效果';
+      if (c === 'cue') return '提示';
+      if (c === 'instant') return '瞬时';
+      return c;
+    }
+
+    onBeforeUnmount(function () { pause(); });
+
+    return {
+      fileUrl, fileInfo, allEvents, activeTab, currentTime, playing, dragOver, cueBar,
+      stateEvents, effectEvents, cueEvents, stats, snap, activeEffects,
+      loadFromUrl, loadSample, handleFileDrop, onDrop,
+      togglePlay, stepTime, onTimeChange,
+      fmtSeconds, catLabel
+    };
+  }
+};
+
+var app = createApp(App);
+app.use(ElementPlus);
+app.mount('#app');
+</script>
+</body>
+</html>
