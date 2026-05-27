@@ -88,7 +88,7 @@ body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-
 
   <div class="info-bar" v-if="fileInfo.title">
     <el-tag type="info" size="small">{{ fileInfo.title }}</el-tag>
-    <span>{{ fileInfo.eventCount }} 条事件 · 总时长 {{ fmtSeconds(stats.totalDuration) }}</span>
+    <span>{{ fileInfo.eventCount }} 条事件 · 总时长 {{ VTT.fmtSeconds(stats.totalDuration) }}</span>
   </div>
 
   <!-- ====== 双 DIV 信息面板 ====== -->
@@ -139,7 +139,7 @@ body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-
       <span class="cue-icon">⏳</span>
       <span class="cue-text">{{ cueBar.text }}</span>
       <span class="cue-countdown">{{ cueBar.countdown.toFixed(1) }}s</span>
-      <span style="font-size:12px;color:#909399">→ {{ fmtSeconds(cueBar.targetTime) }}</span>
+      <span style="font-size:12px;color:#909399">→ {{ VTT.fmtSeconds(cueBar.targetTime) }}</span>
     </div>
   </div>
 
@@ -147,9 +147,9 @@ body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-
   <div class="time-slider" v-if="stats.total > 0">
     <span style="font-size:12px;color:#909399;white-space:nowrap">00:00.00</span>
     <el-slider v-model="currentTime" :min="0" :max="stats.totalDuration" :step="0.1"
-      :format-tooltip="fmtSeconds" show-tooltip @input="onTimeChange" style="flex:1"></el-slider>
-    <span style="font-size:12px;color:#909399;white-space:nowrap">{{ fmtSeconds(stats.totalDuration) }}</span>
-    <div class="time-display">{{ fmtSeconds(currentTime) }}</div>
+      :format-tooltip="VTT.fmtSeconds" show-tooltip @input="onTimeChange" style="flex:1"></el-slider>
+    <span style="font-size:12px;color:#909399;white-space:nowrap">{{ VTT.fmtSeconds(stats.totalDuration) }}</span>
+    <div class="time-display">{{ VTT.fmtSeconds(currentTime) }}</div>
     <div class="time-controls">
       <el-button-group>
         <el-button size="small" @click="stepTime(-0.5)">后退</el-button>
@@ -238,254 +238,14 @@ body { background: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; min-
 
 </div>
 
+<script src="vtt-engine.js"></script>
 <script>
-/* ============================================================
- * VTT 乐谱记号解析引擎
- * 严格遵循 WebVTT 乐谱记号规范 v1.1
- * ============================================================ */
 const { createApp, ref, computed, onBeforeUnmount } = Vue;
-
-/* ---- VTT 时间解析 HH:MM:SS.mmm → 秒 ---- */
-function parseVttTime(hms) {
-  var m = (hms || '').match(/^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/);
-  if (!m) return null;
-  return +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] * 0.001;
-}
-
-function fmtSeconds(sec) {
-  var s = sec || 0;
-  var m = Math.floor(s / 60);
-  var secPart = (s % 60).toFixed(2);
-  return ('0' + m).slice(-2) + ':' + secPart.padStart(5, '0');
-}
-
-/* ---- 力度排序值 ---- */
-var DYNAMIC_ORDER = { pppp:0, ppp:1, pp:2, p:3, mp:4, mf:5, f:6, ff:7, fff:8, ffff:9 };
-var DYNAMIC_LIST  = ['pppp','ppp','pp','p','mp','mf','f','ff','fff','ffff'];
-
-/* ---- 全局状态值校验 ---- */
-function validateBpm(v) {
-  var n = parseFloat(v);
-  return !isNaN(n) && n >= 20 && n <= 400 ? n : null;
-}
-function validateKey(v) {
-  return /^[a-gA-G](#|b)?$/.test(v) ? v : null;
-}
-function validateDynamic(v) {
-  var low = v.toLowerCase();
-  return DYNAMIC_ORDER.hasOwnProperty(low) ? low : null;
-}
-
-/* ---- 数据行解析: bpm=88 | key=D | crescendo:to=f | cue:text=... ---- */
-function parseDataLine(raw) {
-  if (!raw || !raw.trim()) return null;
-  var text = raw.trim();
-  var colonIdx = text.indexOf(':');
-  var eqIdx   = text.indexOf('=');
-
-  var typeName, key1, value1;
-  if (eqIdx > -1 && (colonIdx === -1 || eqIdx < colonIdx)) {
-    typeName = text.substring(0, eqIdx).trim();
-    value1   = text.substring(eqIdx + 1).trim();
-    return { typeName: typeName, params: { value: value1 }, raw: text };
-  } else if (colonIdx > -1) {
-    typeName = text.substring(0, colonIdx).trim();
-    var paramStr = text.substring(colonIdx + 1).trim();
-    var params = {};
-    paramStr.split(',').forEach(function (pair) {
-      var ei = pair.indexOf('=');
-      if (ei > -1) {
-        params[pair.substring(0, ei).trim()] = pair.substring(ei + 1).trim();
-      }
-    });
-    return { typeName: typeName, params: params, raw: text };
-  } else {
-    return { typeName: text, params: {}, raw: text };
-  }
-}
-
-function parseVtt(raw) {
-  var lines = raw.split(/\r?\n/);
-  var events = [];
-  var info = { title: '', notes: [] };
-  var inHeader = true;
-
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i];
-
-    if (inHeader) {
-      if (line.indexOf('-->') !== -1) inHeader = false;
-      else {
-        var ti = line.indexOf('NOTE');
-        if (ti !== -1) {
-          var note = line.substring(ti + 4).trim();
-          if (note) info.notes.push(note);
-          if (note.indexOf('乐谱：') !== -1 && !info.title) info.title = note.replace('乐谱：','').trim();
-        }
-        continue;
-      }
-    }
-
-    var semiIdx = line.indexOf(';');
-    if (semiIdx !== -1) line = line.substring(0, semiIdx);
-    if (!line.trim()) continue;
-
-    var arrowIdx = line.indexOf('-->');
-    if (arrowIdx === -1) continue;
-
-    var startRaw = line.substring(0, arrowIdx).trim();
-    var endRaw   = line.substring(arrowIdx + 3).trim();
-    var t = parseVttTime(startRaw);
-    var e = parseVttTime(endRaw);
-    if (t === null || e === null) continue;
-    if (t > e) continue;
-
-    var dataLines = [];
-    for (var j = i + 1; j < lines.length && lines[j].trim() && lines[j].indexOf('-->') === -1; j++) {
-      var dl = lines[j];
-      var ds = dl.indexOf(';');
-      if (ds !== -1) dl = dl.substring(0, ds);
-      if (dl.trim()) dataLines.push(dl.trim());
-    }
-
-    dataLines.forEach(function (dl) {
-      var parsed = parseDataLine(dl);
-      if (!parsed) return;
-      var typeName = parsed.typeName;
-      var baseType = typeName.split(':')[0];
-
-      var _cat;
-      if (baseType === 'cue') {
-        _cat = 'cue';
-      } else if (Math.abs(e - t) < 0.001 && (baseType === 'bpm' || baseType === 'key' || baseType === 'dynamic' || baseType === 'technique' || baseType === 'expression')) {
-        _cat = 'state';
-      } else if (Math.abs(e - t) < 0.001) {
-        return;
-      } else if (e > t) {
-        _cat = 'effect';
-      } else {
-        return;
-      }
-
-      var evt = {
-        id: 'evt' + events.length,
-        t: t, e: e,
-        startStr: startRaw, endStr: endRaw,
-        duration: +(e - t).toFixed(4),
-        _cat: _cat,
-        typeName: typeName,
-        baseType: baseType,
-        params: parsed.params,
-        raw: parsed.raw
-      };
-
-      if (_cat === 'state') {
-        if (baseType === 'bpm') { var v = validateBpm(parsed.params.value); if (v === null) return; evt.value = v; }
-        else if (baseType === 'key') { var v = validateKey(parsed.params.value); if (v === null) return; evt.value = v; }
-        else if (baseType === 'dynamic') { var v = validateDynamic(parsed.params.value); if (v === null) return; evt.value = v; }
-        else { evt.value = parsed.params.value || ''; }
-      }
-
-      events.push(evt);
-    });
-  }
-
-  if (!info.title && info.notes.length) info.title = info.notes[0].substring(0, 40);
-  events.sort(function (a, b) { return a.t - b.t; });
-  return { info: info, events: events };
-}
-
-/* ---- 构建时间点状态快照 ---- */
-function buildSnapshots(events) {
-  var states = events.filter(function (e) { return e._cat === 'state'; });
-  states.sort(function (a, b) { return a.t - b.t; });
-
-  var snapshots = [];
-  var current = { bpm: '—', key: '—', dynamic: '—', technique: '', expression: '' };
-  var timePoints = [];
-  var seenTime = {};
-
-  states.forEach(function (s) {
-    if (s.baseType === 'bpm') current.bpm = s.value;
-    else if (s.baseType === 'key') current.key = s.value;
-    else if (s.baseType === 'dynamic') current.dynamic = s.value;
-    else if (s.baseType === 'technique') current.technique = s.value;
-    else if (s.baseType === 'expression') current.expression = s.value;
-
-    var tk = s.t.toFixed(3);
-    if (!seenTime[tk]) {
-      seenTime[tk] = true;
-      timePoints.push({ t: s.t, snap: Object.assign({}, current), bpm: current.bpm, key: current.key, dynamic: current.dynamic, technique: current.technique, expression: current.expression });
-    } else {
-      timePoints[timePoints.length - 1] = { t: s.t, snap: Object.assign({}, current), bpm: current.bpm, key: current.key, dynamic: current.dynamic, technique: current.technique, expression: current.expression };
-    }
-  });
-
-  return timePoints;
-}
-
-function getSnapshot(snapshots, t) {
-  if (!snapshots.length) return { bpm: '—', key: '—', dynamic: '—', technique: '', expression: '' };
-  var s = snapshots[0];
-  for (var i = snapshots.length - 1; i >= 0; i--) {
-    if (snapshots[i].t <= t + 0.001) { s = snapshots[i]; break; }
-  }
-  return s;
-}
-
-function getActiveEffects(events, tNow) {
-  var active = events.filter(function (evt) {
-    if (evt._cat !== 'effect') return false;
-    return tNow >= evt.t && tNow < evt.e;
-  });
-
-  var byType = {};
-  active.forEach(function (evt) {
-    if (!byType[evt.baseType]) byType[evt.baseType] = [];
-    byType[evt.baseType].push(evt);
-  });
-
-  var result = [];
-  Object.keys(byType).forEach(function (typeName) {
-    var group = byType[typeName];
-    group.sort(function (a, b) { return a.t - b.t; });
-    var latest = group[group.length - 1];
-    if (latest) result.push(latest);
-  });
-
-  return result.map(function (evt) {
-    var display = evt.typeName;
-    var keys = Object.keys(evt.params);
-    if (keys.length) {
-      display += ' ' + keys.map(function (k) { return k + '=' + evt.params[k]; }).join(',');
-    }
-    return { id: evt.id, effectType: evt.baseType, display: display, t: evt.t, e: evt.e };
-  });
-}
-
-function getActiveCues(events, tNow, notified) {
-  return events.filter(function (evt) {
-    if (evt._cat !== 'cue') return false;
-    var advance = parseFloat(evt.params.advance) || 3;
-    var windowStart = Math.max(0, evt.t - advance);
-    var windowEnd = evt.t > 0.001 ? evt.t : 0.5;
-    return tNow >= windowStart && tNow < windowEnd;
-  }).map(function (evt) {
-    var advance = parseFloat(evt.params.advance) || 3;
-    return {
-      id: evt.id,
-      text: evt.params.text || evt.params.value || '提示',
-      countdown: Math.max(0, +(evt.t - tNow).toFixed(1)),
-      targetTime: evt.t,
-      advance: advance,
-      notified: !!notified[evt.id]
-    };
-  });
-}
 
 /* ============================================================ */
 const App = {
   setup() {
+    var VTT = window.VttEngine;
     var fileUrl  = ref('');
     var fileInfo = ref({ title: '', eventCount: 0 });
     var allEvents = ref([]);
@@ -517,16 +277,16 @@ const App = {
     });
 
     var snap = computed(function () {
-      return getSnapshot(snapshots, currentTime.value).snap;
+      return VTT.getSnapshot(snapshots, currentTime.value).snap;
     });
 
     var activeEffects = computed(function () {
-      return getActiveEffects(allEvents.value, currentTime.value);
+      return VTT.getActiveEffects(allEvents.value, currentTime.value);
     });
 
     /* ---- cue 文本条 + ElNotification ---- */
     function checkCue() {
-      var cues = getActiveCues(allEvents.value, currentTime.value, notifiedCues);
+      var cues = VTT.getActiveCues(allEvents.value, currentTime.value, notifiedCues);
       if (cues.length) {
         var c = cues[0];
         cueBar.value = { visible: true, text: c.text, countdown: c.countdown, targetTime: c.targetTime };
@@ -535,7 +295,7 @@ const App = {
           notifiedCues[c.id] = true;
           ElementPlus.ElNotification({
             title: '🎵 演奏提示',
-            message: c.text + ' — 剩余 ' + c.countdown.toFixed(1) + ' 秒 (' + fmtSeconds(c.targetTime) + ')',
+            message: c.text + ' — 剩余 ' + c.countdown.toFixed(1) + ' 秒 (' + VTT.fmtSeconds(c.targetTime) + ')',
             type: 'warning',
             duration: Math.max(3000, c.countdown * 1000),
             offset: 60
@@ -550,10 +310,10 @@ const App = {
 
     /* ---- 加载 ---- */
     function loadRaw(text) {
-      var result = parseVtt(text);
+      var result = VTT.parse(text);
       fileInfo.value = { title: result.info.title || '未命名', eventCount: result.events.length };
       allEvents.value = result.events;
-      snapshots = buildSnapshots(result.events);
+      snapshots = VTT.buildSnapshots(result.events);
       notifiedCues = {};
       currentTime.value = 0;
       activeTab.value = 'all';
@@ -641,7 +401,7 @@ const App = {
       stateEvents, effectEvents, cueEvents, stats, snap, activeEffects,
       loadFromUrl, loadSample, handleFileDrop, onDrop,
       togglePlay, stepTime, onTimeChange,
-      fmtSeconds, catLabel
+      VTT, catLabel
     };
   }
 };

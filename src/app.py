@@ -13,6 +13,9 @@ app = Flask(
 # 乐谱 PDF 目录
 SHEETS_DIR = os.path.join(BASE, 'upload', 'Sheets')
 
+# VTT 记号文件目录
+VTT_DIR = os.path.join(BASE, 'DataBase')
+
 # 当前指定乐谱（后端变量控制）
 CURRENT_SHEET = None
 
@@ -58,6 +61,19 @@ def list_sheets():
         return jsonify([])
     files = sorted([f for f in os.listdir(SHEETS_DIR) if f.lower().endswith('.pdf')])
     return jsonify(files)
+
+# 列出所有可用 VTT 文件
+@app.route('/api/vtt-files')
+def list_vtt():
+    if not os.path.isdir(VTT_DIR):
+        return jsonify([])
+    files = sorted([f for f in os.listdir(VTT_DIR) if f.lower().endswith('.vtt')])
+    return jsonify(files)
+
+# 提供 VTT 文件内容
+@app.route('/api/vtt/<path:filename>')
+def serve_vtt(filename):
+    return send_from_directory(VTT_DIR, filename)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

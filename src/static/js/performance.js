@@ -230,17 +230,33 @@ const PerformanceApp = {
     const beatIndex     = ref(0);
     const beatsPerMeasure = ref(4);
     const timeDisplay   = ref('05:00');
-    const blinkCount    = ref(0);     // 累计闪烁次数
-    const presetDuration = ref(300);  // 下拉框当前值
-    const showBars       = ref(true);   // 上下栏显示/收起
-    const sheetLoaded    = ref(false);  // 乐谱加载状态
-    const sheetContainer = ref(null);   // DOM 容器引用
+    const blinkCount    = ref(0);
+    const presetDuration = ref(300);
+    const showBars       = ref(true);
+    const sheetLoaded    = ref(false);
+    const sheetContainer = ref(null);
     const progressVisible = ref(false);
     const progressText = ref('');
     const progressPercent = ref(78);
     let pdfRenderer      = null;
     const blinker        = new SidePanelBlinker(86, 0.2, 3);
     let progressRaf    = null;
+
+    /* ---- VTT 记号状态 ---- */
+    const vttKey     = ref('—');
+    const vttDynamic = ref('—');
+    const vttEffect  = ref('—');
+    const vttFileName = ref('');
+    const vttSelected = ref('');
+    const vttFileInput = ref(null);
+    const vttFileList = ref([]);
+    let vttSnapshots  = [];
+    let vttEvents     = null;
+    let vttCurrentTime = 0;
+    let vttRaf        = null;
+    let vttStartTime  = 0;
+    let vttPlaying    = false;
+    const vttHasBpm = ref(false);
 
     // 拍点圆点数组 [0,1,2,3]
     const beatDots = computed(() =>
@@ -259,8 +275,13 @@ const PerformanceApp = {
 
     /* ---- 操作函数 ---- */
     function togglePlay() {
-      if (isPlaying.value) { beat.stop();  timer.stop(); }
-      else                 { beat.start(); timer.start(); }
+      if (isPlaying.value) {
+        beat.stop(); timer.stop();
+        _vttPause();
+      } else {
+        beat.start(); timer.start();
+        _vttPlay();
+      }
       isPlaying.value = !isPlaying.value;
     }
 
@@ -269,11 +290,117 @@ const PerformanceApp = {
       isPlaying.value = false;
       beatIndex.value = 0;
       blinkCount.value = 0;
+      _vttPause();
+      vttCurrentTime = 0;
+      if (vttSnapshots.length) {
+        var snap = window.VttEngine.getSnapshot(vttSnapshots, 0);
+        _vttApplySnapshot(snap.snap);
+      }
+      if (vttEvents) {
+        _vttApplyEffects(window.VttEngine.getActiveEffects(vttEvents, 0));
+      }
     }
 
     function onBpmChange(v)    { bpm.value = v; beat.setBpm(v); blinker.setBpm(v); }
     function onPresetChange(v) { timer.setTotal(v); }
     function toggleBars()    { showBars.value = !showBars.value; }
+
+    /* ---- VTT 引擎桥接 ---- */
+    function _vttApplySnapshot(snap) {
+      if (snap.key !== undefined) vttKey.value = snap.key;
+      if (snap.dynamic !== undefined) vttDynamic.value = snap.dynamic;
+      if (!vttHasBpm.value && snap.bpm !== undefined && snap.bpm !== '—') {
+        bpm.value = snap.bpm;
+        beat.setBpm(snap.bpm);
+        blinker.setBpm(snap.bpm);
+        vttHasBpm.value = true;
+      } else if (snap.bpm !== undefined && snap.bpm !== '—' && snap.bpm !== bpm.value) {
+        bpm.value = snap.bpm;
+        beat.setBpm(snap.bpm);
+        blinker.setBpm(snap.bpm);
+      }
+    }
+
+    function _vttApplyEffects(effects) {
+      if (effects && effects.length) {
+        vttEffect.value = effects.map(function (e) { return e.effectType; }).join(' ');
+      } else {
+        vttEffect.value = '—';
+      }
+    }
+
+    function _vttTick() {
+      if (!vttPlaying) return;
+      var now = performance.now();
+      vttCurrentTime = Math.max(0, (now - vttStartTime) / 1000);
+
+      if (vttSnapshots.length) {
+        var snap = window.VttEngine.getSnapshot(vttSnapshots, vttCurrentTime);
+        _vttApplySnapshot(snap.snap);
+      }
+      if (vttEvents) {
+        _vttApplyEffects(window.VttEngine.getActiveEffects(vttEvents, vttCurrentTime));
+      }
+
+      vttRaf = requestAnimationFrame(_vttTick);
+    }
+
+    function _vttPlay() {
+      if (!vttEvents && !vttSnapshots.length) return;
+      vttPlaying = true;
+      vttStartTime = performance.now() - vttCurrentTime * 1000;
+      vttRaf = requestAnimationFrame(_vttTick);
+    }
+
+    function _vttPause() {
+      vttPlaying = false;
+      cancelAnimationFrame(vttRaf);
+    }
+
+    function loadVttText(text) {
+      var result = window.VttEngine.parse(text);
+      vttEvents = result.events;
+      vttSnapshots = window.VttEngine.buildSnapshots(result.events);
+      vttCurrentTime = 0;
+      vttHasBpm.value = false;
+      _vttApplySnapshot(window.VttEngine.getSnapshot(vttSnapshots, 0).snap);
+      _vttApplyEffects(window.VttEngine.getActiveEffects(vttEvents, 0));
+    }
+
+    function onVttSelected() {
+      if (!vttSelected.value) { _clearVtt(); return; }
+      fetch('/api/vtt/' + vttSelected.value)
+        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
+        .then(function (text) { loadVttText(text); vttFileName.value = vttSelected.value; })
+        .catch(function (e) { console.error('VTT 加载失败:', e); });
+    }
+
+    function onVttFilePicked(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        loadVttText(reader.result);
+        vttFileName.value = file.name;
+        vttSelected.value = '';
+      };
+      reader.readAsText(file);
+    }
+
+    function _clearVtt() {
+      vttEvents = null;
+      vttSnapshots = [];
+      vttFileName.value = '';
+      vttKey.value = '—';
+      vttDynamic.value = '—';
+      vttEffect.value = '—';
+      vttCurrentTime = 0;
+      vttHasBpm.value = false;
+      _vttPause();
+      bpm.value = 86;
+      beat.setBpm(86);
+      blinker.setBpm(86);
+    }
 
     function showProgress(delay, text) {
       cancelAnimationFrame(progressRaf);
@@ -314,6 +441,7 @@ const PerformanceApp = {
       document.addEventListener('keydown', onKeydown);
       await nextTick();
       if (window.initTimeline) window.initTimeline();
+      fetch('/api/vtt-files').then(function (r) { return r.json(); }).then(function (files) { vttFileList.value = files; }).catch(function () {});
       try {
         var sheetRes = await fetch('/api/current-sheet');
         var sheetData = await sheetRes.json();
@@ -327,7 +455,7 @@ const PerformanceApp = {
         console.error('PDF 加载失败:', e);
       }
     });
-    onBeforeUnmount(() => { blinker.stop(); cancelAnimationFrame(progressRaf); document.removeEventListener('keydown', onKeydown); });
+    onBeforeUnmount(() => { blinker.stop(); cancelAnimationFrame(progressRaf); _vttPause(); document.removeEventListener('keydown', onKeydown); });
 
     return {
       isPlaying, bpm, beatIndex, beatsPerMeasure, beatDots,
@@ -335,6 +463,8 @@ const PerformanceApp = {
       showBars,
       sheetLoaded, sheetContainer,
       progressVisible, progressText, progressPercent, showProgress,
+      vttKey, vttDynamic, vttEffect, vttFileName, vttSelected, vttFileInput, vttFileList,
+      onVttSelected, onVttFilePicked,
       togglePlay, handleReset, onBpmChange, onPresetChange, toggleBars,
     };
   },

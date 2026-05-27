@@ -28,23 +28,36 @@
       <span class="label-bpm">bpm</span>
     </div>
 
-    <!-- 列2: Key / 1 -->
+    <!-- 列2: Key -->
     <div class="header-cell col-number">
-      <span class="big-number" style="font-family:'PinyonScript',serif;">#f</span>
+      <span class="big-number" style="font-family:'PinyonScript',serif;">[[ vttKey ]]</span>
       <span class="label-bpm">Key</span>
     </div>
 
-    <!-- 列3: Para / 3 -->
+    <!-- 列3: Dynamic -->
     <div class="header-cell col-number">
-      <span class="big-number">3</span>
-      <span class="label-bpm">Para</span>
+      <span class="big-number">[[ vttDynamic ]]</span>
+      <span class="label-bpm">Dynamic</span>
     </div>
 
-    <!-- 列4: cresc -->
+    <!-- 列4: Effect -->
     <div class="header-cell col-number">
-      <span class="big-number" style="font-family:'PinyonScript',serif;">cresc</span>
+      <span class="big-number" style="font-family:'PinyonScript',serif;font-size:28px;">[[ vttEffect ]]</span>
     </div>
   </header>
+
+  <!-- VTT 加载条 -->
+  <div class="vtt-bar" v-show="showBars">
+    <input type="file" accept=".vtt" @change="onVttFilePicked" style="display:none" ref="vttFileInput">
+    <span class="vtt-label">VTT 记号文件</span>
+    <select v-model="vttSelected" @change="onVttSelected" style="flex:1;padding:2px 8px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;background:#fff;max-width:200px;">
+      <option value="">— 未加载 —</option>
+      <option v-for="f in vttFileList" :key="f" :value="f">[[ f ]]</option>
+    </select>
+    <span v-if="vttFileName" style="font-size:12px;color:#67c23a;margin-left:8px;">✓ [[ vttFileName ]]</span>
+    <span v-else style="font-size:12px;color:#909399;margin-left:8px;">或选择本地文件加载</span>
+    <button @click="$refs.vttFileInput.click()" style="margin-left:8px;padding:2px 12px;border:1px solid #dcdfe6;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;">📁 本地文件</button>
+  </div>
 
   <!-- 主区 -->
   <main class="perf-main" :class="{ 'perf-main--full': !showBars, 'perf-main--progress': progressVisible }">
@@ -86,6 +99,7 @@
 <!-- pdf.js: Mozilla 官方 PDF 渲染库 -->
 <script src="/static/vendor/pdf.min.js"></script>
 <!-- 业务引擎 + Vue 应用 -->
+<script src="/static/js/vtt-engine.js"></script>
 <script src="/static/js/performance.js"></script>
 <!-- 时间轴编辑器 -->
 <script src="/static/js/timeline.js"></script>

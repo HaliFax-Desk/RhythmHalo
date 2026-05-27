@@ -123,6 +123,15 @@ html, body {
   transform: translateY(-100%);
 }
 
+/* ---- VTT 加载条 ---- */
+.vtt-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; margin: 0 var(--margin-x);
+  background: #fafafa; border-bottom: 1px solid #ebeef5;
+  font-size: 13px; flex-shrink: 0; min-height: 32px;
+}
+.vtt-label { color: #909399; white-space: nowrap; font-weight: 500; }
+
 /* ---- 底栏: 可下滑收起 ---- */
 .bottom-header {
   transition: transform 0.35s ease, max-height 0.35s ease;
