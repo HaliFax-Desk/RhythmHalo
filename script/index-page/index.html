@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RhythmHalo · 首页</title>
+<link rel="stylesheet" href="vendor/element-plus.css">
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/element-plus.full.js"></script>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #303133; }
+
+/* ---- 整体响应式变量 ---- */
+:root {
+  --sidebar-w: 200px;
+  --pad: clamp(12px, 2vw, 24px);
+  --card-min: clamp(260px, 28vw, 340px);
+  --card-gap: clamp(12px, 1.5vw, 20px);
+}
+
+/* ---- el-container 布局 ---- */
+.layout-container { height: 100vh; display: flex; flex-direction: column; }
+.layout-container > .el-header    { padding: 0; height: 56px; flex-shrink: 0; }
+.layout-container > .el-container { flex: 1; min-height: 0; }
+.layout-container > .el-container > .el-aside  { width: var(--sidebar-w) !important; overflow: visible; }
+.layout-container > .el-container > .el-main   { padding: var(--pad); overflow-y: auto; }
+
+/* ---- el-menu 顶栏定制 ---- */
+.top-menu { border-bottom: 1px solid #e4e7ed !important; height: 100%; }
+.top-menu .logo-item { font-size: 18px; font-weight: 700; color: #409eff !important; cursor: default; letter-spacing: .5px; opacity: 1 !important; }
+.top-menu .logo-item:hover { background: transparent !important; color: #409eff !important; }
+.top-menu .el-menu-item { font-size: 13px; }
+.header-right { display: flex; align-items: center; gap: 10px; padding-right: 20px; }
+.user-greeting { font-size: 12px; color: #909399; text-align: right; line-height: 1.3; }
+.user-name { font-size: 14px; font-weight: 600; color: #303133; }
+
+/* ---- el-menu 侧栏定制 ---- */
+.side-menu { border-right: 1px solid #e4e7ed !important; height: 100%; overflow-y: auto; }
+.side-menu:not(.el-menu--collapse) { width: 100%; }
+.side-menu .el-menu-item { font-size: 13px; height: 40px; line-height: 40px; }
+.side-menu .el-menu-item-group__title { font-size: 11px; color: #c0c4cc; padding: 12px 20px 4px; letter-spacing: .5px; }
+
+/* ---- PageHeader ---- */
+.page-header { display: flex; align-items: center; gap: var(--pad); flex-wrap: wrap; margin-bottom: var(--card-gap); }
+.page-header .welcome { flex: 1; min-width: 0; }
+.page-header .welcome h2 { font-size: clamp(16px, 1.8vw, 20px); font-weight: 600; margin: 0 0 2px; }
+.page-header .welcome p  { font-size: 13px; color: #909399; margin: 0; }
+.page-header .actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ---- 卡片网格（响应式）---- */
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--card-gap); }
+.card-grid .el-card { border-radius: 8px; overflow: hidden; transition: box-shadow .3s, transform .2s; cursor: pointer; }
+.card-grid .el-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,.1); transform: translateY(-2px); }
+.card-cover { height: clamp(130px, 18vw, 180px); background: #e8eaed; display: flex; align-items: center; justify-content: center; font-size: 48px; color: #c0c4cc; overflow: hidden; }
+.card-cover img { width: 100%; height: 100%; object-fit: cover; }
+.card-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; }
+.card-title { font-size: clamp(14px, 1.3vw, 16px); font-weight: 600; }
+.card-author { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #606266; }
+.card-footer { padding: 8px 18px; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.bottom-note { text-align: center; font-size: 12px; color: #c0c4cc; padding: 8px 0 4px; }
+
+/* ---- 响应式断点 ---- */
+@media (max-width: 1200px) {
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+  :root { --sidebar-w: 64px; }
+  .side-menu:not(.el-menu--collapse) { width: 64px; }
+  .side-menu .el-menu-item span,
+  .side-menu .el-menu-item-group__title { display: none; }
+}
+
+@media (max-width: 768px) {
+  .card-grid { grid-template-columns: 1fr; }
+  :root { --sidebar-w: 0; }
+  .layout-container > .el-container > .el-aside { display: none; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <el-container class="layout-container">
+
+    <!-- ====== Header ====== -->
+    <el-header style="display:flex;align-items:center;padding:0;background:#fff;border-bottom:1px solid #e4e7ed">
+      <el-menu mode="horizontal" :ellipsis="false" class="top-menu" style="flex:1;border-bottom:none">
+        <el-menu-item class="logo-item" disabled>🎵 RhythmHalo</el-menu-item>
+        <el-menu-item index="files">Files</el-menu-item>
+        <el-menu-item index="edit">Edit</el-menu-item>
+        <el-menu-item index="manager">Manager</el-menu-item>
+      </el-menu>
+
+      <div style="display:flex;align-items:center;gap:10px;padding-right:20px;flex-shrink:0">
+        <div class="user-greeting">
+          <div>早上好，开始今天的演奏</div>
+          <div class="user-name">{{ userName }}</div>
+        </div>
+        <el-dropdown trigger="click">
+          <el-avatar :size="32" :src="avatarUrl" style="cursor:pointer" />
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item>个人中心</el-dropdown-item>
+              <el-dropdown-item>设置</el-dropdown-item>
+              <el-dropdown-item divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </el-header>
+
+    <el-container>
+
+      <!-- ====== 侧栏: el-menu vertical ====== -->
+      <el-aside>
+        <el-menu :default-active="activeMenu" class="side-menu" @select="onMenuSelect">
+          <el-menu-item index="back">
+            <el-icon><ArrowLeft /></el-icon>
+            <span>Back</span>
+          </el-menu-item>
+
+          <el-menu-item-group>
+            <template #title>Navigator</template>
+            <el-menu-item index="files-side">Files</el-menu-item>
+            <el-menu-item index="manager-side">Manager</el-menu-item>
+            <el-menu-item index="edit-side">Edit</el-menu-item>
+          </el-menu-item-group>
+
+          <el-menu-item-group>
+            <template #title>曲谱架</template>
+            <el-menu-item index="private">私有</el-menu-item>
+            <el-menu-item index="all-docs">All's 3 Documents</el-menu-item>
+          </el-menu-item-group>
+        </el-menu>
+      </el-aside>
+
+      <!-- ====== 主内容区 ====== -->
+      <el-main>
+
+        <div class="page-header">
+          <div class="welcome">
+            <h2>早上好 {{ userName }} ~</h2>
+            <p>开始今天的演奏</p>
+          </div>
+          <el-space wrap>
+            <el-tag type="info" effect="plain">All's 3 Documents</el-tag>
+            <el-link :underline="false" type="primary">近期曲谱</el-link>
+          </el-space>
+          <el-space class="actions">
+            <el-button round>新建</el-button>
+            <el-button type="primary" round>上传曲谱</el-button>
+          </el-space>
+        </div>
+
+        <div class="card-grid">
+          <el-card v-for="card in cards" :key="card.id" :body-style="{ padding: '0' }" shadow="hover" @click="onCardClick(card)">
+            <div class="card-cover">
+              <img v-if="card.image" :src="card.image" style="width:100%;height:100%;object-fit:cover" />
+              <span v-else>{{ card.coverIcon }}</span>
+            </div>
+            <div class="card-body">
+              <div class="card-title">{{ card.title }}</div>
+              <el-space :size="12" style="font-size:12px;color:#909399">
+                <span>{{ card.bars }} Bar</span>
+                <el-divider direction="vertical" />
+                <span>{{ card.duration }}</span>
+              </el-space>
+              <div class="card-author">
+                <el-avatar :size="20" style="font-size:10px">{{ card.author.charAt(0) }}</el-avatar>
+                <span>{{ card.author }}</span>
+              </div>
+            </div>
+            <div class="card-footer">
+              <el-tag v-for="tag in card.tags" :key="tag.text" :type="tag.type" size="small" effect="plain">{{ tag.text }}</el-tag>
+            </div>
+          </el-card>
+        </div>
+
+        <div class="bottom-note">通常情况下卡片组件需要解绑实例来使用</div>
+
+      </el-main>
+    </el-container>
+
+  </el-container>
+</div>
+
+<script>
+const { createApp, ref } = Vue;
+
+const App = {
+  setup() {
+    var userName = ref('Zhovice');
+    var avatarUrl = ref('');
+    var activeMenu = ref('files-side');
+
+    var cards = ref([
+      {
+        id: 1,
+        pieceId: 'chunwu',
+        title: '春物Mix+2',
+        bars: 56,
+        duration: '3:42',
+        author: 'SemiTech',
+        coverIcon: '🎼',
+        image: '',
+        tags: [
+          { text: '普通曲谱', type: '' },
+          { text: 'ACG', type: 'info' }
+        ]
+      },
+      {
+        id: 2,
+        title: 'Sincerely - OST',
+        bars: 72,
+        duration: '4:18',
+        author: 'MaxTeam',
+        coverIcon: '🎹',
+        image: '',
+        tags: [
+          { text: 'ACG', type: 'success' },
+          { text: 'Japanese Piano', type: '' }
+        ]
+      },
+      {
+        id: 3,
+        title: '曲谱架',
+        bars: 200,
+        duration: '8:05',
+        author: 'Animenzzz',
+        coverIcon: '🎵',
+        image: '',
+        tags: [
+          { text: 'MusicXML音乐', type: 'warning' },
+          { text: 'MIDI包文件', type: 'danger' }
+        ]
+      }
+    ]);
+
+    function onCardClick(card) {
+      if (card.pieceId) {
+        window.open('/performance?id=' + card.pieceId, '_blank');
+      }
+    }
+
+    function onMenuSelect(index) { activeMenu.value = index; }
+
+    return { userName, avatarUrl, activeMenu, cards, onCardClick, onMenuSelect };
+  }
+};
+
+var app = createApp(App);
+app.use(ElementPlus);
+app.mount('#app');
+</script>
+</body>
+</html>

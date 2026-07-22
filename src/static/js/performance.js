@@ -359,19 +359,7 @@ const PerformanceApp = {
 
     /* ---- VTT 加载方式 ---- */
 
-    // 方式一：后端接口加载（当前使用）
-    // 从 /api/current-vtt 获取后端 CURRENT_VTT 变量指定的文件
-    function loadVttFromApi() {
-      fetch('/api/current-vtt')
-        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
-        .then(function (text) {
-          loadVttText(text);
-          vttFileName.value = 'CURRENT_VTT';
-        })
-        .catch(function (e) { console.error('VTT API 加载失败:', e); });
-    }
-
-    // 方式二：原始文本加载（共享核心，被 onVttSelected / onVttFilePicked / loadVttFromApi 复用）
+    // 共享核心：解析 VTT 原始文本
     function loadVttText(text) {
       var result = window.VttEngine.parse(text);
       vttEvents = result.events;
@@ -382,16 +370,32 @@ const PerformanceApp = {
       _vttApplyEffects(window.VttEngine.getActiveEffects(vttEvents, 0));
     }
 
-    // 方式三：下拉框选择（已注释 UI，保留函数）
-    function onVttSelected() {
-      if (!vttSelected.value) { _clearVtt(); return; }
-      fetch('/api/vtt/' + vttSelected.value)
+    // 通过 /api/vtt/<filename> 加载
+    function loadVttByFile(filename) {
+      fetch('/api/vtt/' + encodeURIComponent(filename))
         .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
-        .then(function (text) { loadVttText(text); vttFileName.value = vttSelected.value; })
+        .then(function (text) { loadVttText(text); vttFileName.value = filename; })
         .catch(function (e) { console.error('VTT 加载失败:', e); });
     }
 
-    // 方式四：本地文件上传（已注释 UI，保留函数）
+    // 从 /api/current-vtt 加载（无 ?id= 时的 fallback）
+    function loadVttFromApi() {
+      fetch('/api/current-vtt')
+        .then(function (r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.text(); })
+        .then(function (text) {
+          loadVttText(text);
+          vttFileName.value = 'CURRENT_VTT';
+        })
+        .catch(function (e) { console.error('VTT API 加载失败:', e); });
+    }
+
+    // 下拉框选择（已注释 UI，保留函数）
+    function onVttSelected() {
+      if (!vttSelected.value) { _clearVtt(); return; }
+      loadVttByFile(vttSelected.value);
+    }
+
+    // 本地文件上传（已注释 UI，保留函数）
     function onVttFilePicked(e) {
       var file = e.target.files[0];
       if (!file) return;
@@ -402,6 +406,47 @@ const PerformanceApp = {
         vttSelected.value = '';
       };
       reader.readAsText(file);
+    }
+
+    /* ---- PDF 加载 ---- */
+    async function loadPdf(filename) {
+      if (!sheetContainer.value) return;
+      if (pdfRenderer) pdfRenderer.destroy();
+      pdfRenderer = new PdfRenderer(sheetContainer.value);
+      var url = '/sheets/' + encodeURIComponent(filename);
+      await pdfRenderer.load(url);
+      sheetLoaded.value = true;
+    }
+
+    /* ---- 统一曲谱加载 ---- */
+    // 通过曲谱 ID 加载（首页跳转 /performance?id=xxx）
+    async function loadPieceById(pieceId) {
+      try {
+        var res = await fetch('/api/piece/' + pieceId);
+        if (!res.ok) throw Error('HTTP ' + res.status);
+        var piece = await res.json();
+        if (piece.pdf_file) await loadPdf(piece.pdf_file);
+        else console.warn('曲谱 PDF 未找到:', piece.pdf);
+        if (piece.vtt_file) loadVttByFile(piece.vtt_file);
+        else console.warn('VTT 文件未找到:', piece.vtt);
+        return true;
+      } catch (e) {
+        console.error('曲谱加载失败:', e);
+        return false;
+      }
+    }
+
+    // 无 ?id= 时的 fallback：逐文件加载
+    async function loadPieceFallback() {
+      fetch('/api/vtt-files').then(function (r) { return r.json(); }).then(function (files) { vttFileList.value = files; }).catch(function () {});
+      loadVttFromApi();
+      try {
+        var sheetRes = await fetch('/api/current-sheet');
+        var sheetData = await sheetRes.json();
+        if (sheetData.filename) await loadPdf(sheetData.filename);
+      } catch (e) {
+        console.error('PDF 加载失败:', e);
+      }
     }
 
     function _clearVtt() {
@@ -458,19 +503,14 @@ const PerformanceApp = {
       document.addEventListener('keydown', onKeydown);
       await nextTick();
       if (window.initTimeline) window.initTimeline();
-      fetch('/api/vtt-files').then(function (r) { return r.json(); }).then(function (files) { vttFileList.value = files; }).catch(function () {});
-      loadVttFromApi();
-      try {
-        var sheetRes = await fetch('/api/current-sheet');
-        var sheetData = await sheetRes.json();
-        if (sheetData.filename && sheetContainer.value) {
-          var url = '/sheets/' + encodeURIComponent(sheetData.filename);
-          pdfRenderer = new PdfRenderer(sheetContainer.value);
-          await pdfRenderer.load(url);
-          sheetLoaded.value = true;
-        }
-      } catch (e) {
-        console.error('PDF 加载失败:', e);
+
+      var params = new URLSearchParams(window.location.search);
+      var pieceId = params.get('id');
+
+      if (pieceId) {
+        await loadPieceById(pieceId);
+      } else {
+        await loadPieceFallback();
       }
     });
     onBeforeUnmount(() => { blinker.stop(); cancelAnimationFrame(progressRaf); _vttPause(); document.removeEventListener('keydown', onKeydown); });

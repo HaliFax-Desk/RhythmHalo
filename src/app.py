@@ -1,7 +1,7 @@
 import os
-from flask import Flask, render_template, send_from_directory, jsonify
+import json
+from flask import Flask, render_template, send_from_directory, jsonify, request
 
-# 用 app.py 所在目录的绝对路径，确保从任意位置启动都能找到模板/静态/乐谱
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(
@@ -10,54 +10,101 @@ app = Flask(
     static_folder=os.path.join(BASE, 'static'),
 )
 
-# 乐谱 PDF 目录
 SHEETS_DIR = os.path.join(BASE, 'upload', 'Sheets')
+VTT_DIR   = os.path.join(BASE, 'DataBase')
+PIECES_JSON = os.path.join(BASE, 'DataBase', 'pieces.json')
 
-# VTT 记号文件目录
-VTT_DIR = os.path.join(BASE, 'DataBase')
+def _load_pieces():
+    if not os.path.isfile(PIECES_JSON):
+        return {}
+    with open(PIECES_JSON, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    pieces = {}
+    for p in data:
+        pieces[p['id']] = p
+    return pieces
 
-# 当前指定乐谱（后端变量控制）
-CURRENT_SHEET = None
-
-# 当前指定 VTT 记号文件（后端变量控制）
-CURRENT_VTT = None
-
-def find_sheet(filename):
+def _find_file(directory, filename):
     if not filename:
         return None
-    path = os.path.join(SHEETS_DIR, filename)
-    if os.path.isfile(path):
+    exact = os.path.join(directory, filename)
+    if os.path.isfile(exact):
         return filename
-    for f in os.listdir(SHEETS_DIR):
-        if f.lower() == filename.lower():
+    if not os.path.isdir(directory):
+        return None
+    lower = filename.lower()
+    for f in os.listdir(directory):
+        if f.lower() == lower:
             return f
     return None
 
 @app.route('/')
+def index():
+    return render_template('index.html')
+
 @app.route('/performance')
 def performance():
     return render_template('performance.html')
 
-# 提供乐谱 PDF 文件
+# ====== 曲谱索引接口 ======
+
+@app.route('/api/pieces')
+def list_pieces():
+    """返回所有曲谱简要信息（不含文件名，前端安全展示）"""
+    pieces = _load_pieces()
+    items = []
+    for pid, p in pieces.items():
+        items.append({
+            'id': p['id'],
+            'title': p['title'],
+            'author': p.get('author', ''),
+            'bars': p.get('bars', 0),
+            'duration': p.get('duration', ''),
+            'tags': p.get('tags', []),
+        })
+    return jsonify(items)
+
+@app.route('/api/piece/<piece_id>')
+def get_piece(piece_id):
+    """返回单个曲谱完整信息（含文件路径，供 performance 页面加载）"""
+    pieces = _load_pieces()
+    p = pieces.get(piece_id)
+    if not p:
+        return jsonify({'error': '曲谱不存在'}), 404
+    pdf_match = _find_file(SHEETS_DIR, p['pdf'])
+    vtt_match = _find_file(VTT_DIR, p['vtt'])
+    return jsonify({
+        'id': p['id'],
+        'title': p['title'],
+        'author': p.get('author', ''),
+        'bars': p.get('bars', 0),
+        'duration': p.get('duration', ''),
+        'tags': p.get('tags', []),
+        'pdf_file': pdf_match,
+        'vtt_file': vtt_match,
+    })
+
+# ====== 乐谱 PDF 接口 ======
+
 @app.route('/sheets/<path:filename>')
 def serve_sheet(filename):
     return send_from_directory(SHEETS_DIR, filename)
 
-# 获取当前指定乐谱
 @app.route('/api/current-sheet')
 def current_sheet():
-    global CURRENT_SHEET
-    if CURRENT_SHEET:
-        match = find_sheet(CURRENT_SHEET)
+    pieces = _load_pieces()
+    first = next(iter(pieces.values()), None) if pieces else None
+    if first:
+        match = _find_file(SHEETS_DIR, first['pdf'])
         if match:
             return jsonify({'filename': match})
-    files = sorted([f for f in os.listdir(SHEETS_DIR) if f.lower().endswith('.pdf')])
-    if files:
-        CURRENT_SHEET = files[0]
-        return jsonify({'filename': files[0]})
+
+    if os.path.isdir(SHEETS_DIR):
+        files = sorted([f for f in os.listdir(SHEETS_DIR) if f.lower().endswith('.pdf')])
+        if files:
+            return jsonify({'filename': files[0]})
     return jsonify({'filename': None})
 
-# 列出所有可用乐谱
 @app.route('/api/sheets')
 def list_sheets():
     if not os.path.isdir(SHEETS_DIR):
@@ -65,7 +112,12 @@ def list_sheets():
     files = sorted([f for f in os.listdir(SHEETS_DIR) if f.lower().endswith('.pdf')])
     return jsonify(files)
 
-# 列出所有可用 VTT 文件
+# ====== VTT 记号文件接口 ======
+
+@app.route('/api/vtt/<path:filename>')
+def serve_vtt(filename):
+    return send_from_directory(VTT_DIR, filename)
+
 @app.route('/api/vtt-files')
 def list_vtt():
     if not os.path.isdir(VTT_DIR):
@@ -73,23 +125,19 @@ def list_vtt():
     files = sorted([f for f in os.listdir(VTT_DIR) if f.lower().endswith('.vtt')])
     return jsonify(files)
 
-# 提供 VTT 文件内容
-@app.route('/api/vtt/<path:filename>')
-def serve_vtt(filename):
-    return send_from_directory(VTT_DIR, filename)
-
-# 获取当前指定 VTT 记号文件
 @app.route('/api/current-vtt')
 def current_vtt():
-    global CURRENT_VTT
-    if CURRENT_VTT:
-        path = os.path.join(VTT_DIR, CURRENT_VTT)
-        if os.path.isfile(path):
-            return send_from_directory(VTT_DIR, CURRENT_VTT)
-    files = sorted([f for f in os.listdir(VTT_DIR) if f.lower().endswith('.vtt')])
-    if files:
-        CURRENT_VTT = files[0]
-        return send_from_directory(VTT_DIR, files[0])
+    pieces = _load_pieces()
+    first = next(iter(pieces.values()), None) if pieces else None
+    if first:
+        match = _find_file(VTT_DIR, first['vtt'])
+        if match:
+            return send_from_directory(VTT_DIR, match)
+
+    if os.path.isdir(VTT_DIR):
+        files = sorted([f for f in os.listdir(VTT_DIR) if f.lower().endswith('.vtt')])
+        if files:
+            return send_from_directory(VTT_DIR, files[0])
     return jsonify({'error': 'no VTT file found'}), 404
 
 if __name__ == '__main__':
